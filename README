@@ -20,6 +20,8 @@ Mendeteksi reset beberapakali untuk memasuki webconfig mode
 Pengendalian untuk berbagai peralatan melalui Infra Merah dengan jangkauan kendali IoT 
 4. Decode IR
 Melakukan pembacaan kode IR dengan berbagai protokol untuk berbagai peralatan berbasis IR
+Protokol yang didukung, dicek di :
+https://github.com/crankyoldgit/IRremoteESP8266/blob/master/SupportedProtocols.md
 
 Penggunaan
 1. Flash/Upload Firmware
