@@ -17,7 +17,9 @@ Memungkinkan untuk melakukan konfigurasi wifi dan parameter mqtt melalui web por
 2. DRD
 Mendeteksi reset beberapakali untuk memasuki webconfig mode
 3. Remote IR
-Pengendalian melalui Infra Merah dengan jangkauan kendali IoT 
+Pengendalian untuk berbagai peralatan melalui Infra Merah dengan jangkauan kendali IoT 
+4. Decode IR
+Melakukan pembacaan kode IR dengan berbagai protokol untuk berbagai peralatan berbasis IR
 
 Penggunaan
 1. Flash/Upload Firmware
