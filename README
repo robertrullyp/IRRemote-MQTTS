@@ -1,0 +1,27 @@
+DIY Smart IR Remote via MQTT
+
+Supported MCU :
+1. ESP8266
+2. ESP32
+
+Komponen yang dibutuhkan :
+1. LED IR Transmitter
+2. LED IR Receiver
+3. Resistor
+4. Mosfet atau Transistor
+5. Sensor Suhu & Kelembaban (AHTxx)
+
+Fitur :
+1. WebConfig
+Memungkinkan untuk melakukan konfigurasi wifi dan parameter mqtt melalui web portal
+2. DRD
+Mendeteksi reset beberapakali untuk memasuki webconfig mode
+3. Remote IR
+Pengendalian melalui Infra Merah dengan jangkauan kendali IoT 
+
+Penggunaan
+1. Flash/Upload Firmware
+2. Sambungkan wifi ke perangkat dengan menggunakan password yang sama dengan nama ssid
+3. Lakukan konfigurasi parameter wifi & mqtt
+4. Save & Reboot/Reset
+5. Kontrol menggunakan mqtt client atau integrasi dengan dashboard lainnya (ex: Home Assistant, dsb)
