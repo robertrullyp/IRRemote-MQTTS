@@ -30,12 +30,18 @@ Melakukan pembacaan kode IR dengan berbagai protokol untuk berbagai peralatan be
 Protokol yang didukung, dicek di :
 https://github.com/crankyoldgit/IRremoteESP8266/blob/master/SupportedProtocols.md
 
-Penggunaan
-1. Flash/Upload Firmware
-2. Sambungkan wifi ke perangkat dengan menggunakan password yang sama dengan nama ssid
+
+
+Penggunaan :
+1. Flash/Upload Firmware (pake kabel dulu buat upload pertama kali, selanjutnya untuk update program yang udah dikembangin bisa pake otp uploadnya)
+2. Sambungkan wifi ke perangkat dengan menggunakan password yang sama dengan nama ssid (First time config)
 3. Lakukan konfigurasi parameter wifi & mqtt
 4. Save & Reboot/Reset
 5. Kontrol menggunakan mqtt client atau integrasi dengan dashboard lainnya (ex: Home Assistant, dsb)
+untuk bisa melihat struktur topic mqtt cek :
+https://mqtt-explorer.com/
+
+untuk merubah configurasi wifi & mqtt selanjutnya dapat menggunakan fitur DRD, caranya tekan reset 2 kali dalam 2-3 detik (disesuaikan), akan masuk mode webconfig
 
 Kontrol menggunakan Android MQTT Dashboard Client:
 
@@ -50,3 +56,4 @@ https://github.com/robertrullyp/IRRemote-MQTTS/assets/12167355/75182d38-0b2f-40b
 
 
 https://github.com/robertrullyp/IRRemote-MQTTS/assets/12167355/f4d919bb-fa94-40f4-b695-e09f36397f24  
+
