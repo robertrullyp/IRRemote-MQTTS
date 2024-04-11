@@ -1,4 +1,5 @@
-#define UID              "ESP32DevKit-v1-"    //sesuaikan unique id untuk perangkat
+// #define UID              "ESP32DevKit-v1-"    //sesuaikan unique id untuk perangkat
+#define UID              "NodeMCU-v3-"    //sesuaikan unique id untuk perangkat
 #define USE_TLS    // uncomment (hapus tanda // di awal perintah) jika koneksi mqtt menggunakan SSL/TLS
 
 #if !( defined(ESP8266) ||  defined(ESP32) )
