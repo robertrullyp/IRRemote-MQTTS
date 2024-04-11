@@ -36,7 +36,10 @@ Penggunaan
 4. Save & Reboot/Reset
 5. Kontrol menggunakan mqtt client atau integrasi dengan dashboard lainnya (ex: Home Assistant, dsb)
 
+Kontrol menggunakan Android MQTT Dashboard Client:
+
 ![photo_2024-04-11_19-15-40](https://github.com/robertrullyp/IRRemote-MQTTS/assets/12167355/c1a319ea-93e0-438a-b82d-86c7dd958124)
 
 Integrasi dengan Home Assistant:
+
 ![photo_2023-05-05_16-09-44](https://github.com/robertrullyp/IRRemote-MQTTS/assets/12167355/ba63651d-536f-444e-b8f3-36488e225426)
