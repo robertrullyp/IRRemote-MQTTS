@@ -44,3 +44,7 @@ Kontrol menggunakan Android MQTT Dashboard Client:
 Integrasi dengan Home Assistant:
 
 ![photo_2023-05-05_16-09-44](https://github.com/robertrullyp/IRRemote-MQTTS/assets/12167355/ba63651d-536f-444e-b8f3-36488e225426)
+
+
+https://github.com/robertrullyp/IRRemote-MQTTS/assets/12167355/f4d919bb-fa94-40f4-b695-e09f36397f24
+
