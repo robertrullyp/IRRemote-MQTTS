@@ -12,8 +12,10 @@ Komponen yang dibutuhkan :
 5. Sensor Suhu & Kelembaban (AHTxx)
 Dapat menggunakan modul IR Emitter:
 ![photo_2024-04-11_19-18-00](https://github.com/robertrullyp/IRRemote-MQTTS/assets/12167355/f3449755-5e8f-4832-9187-043411cd3fff)
+
 atau ganti modul IR Emitter dengan rangkaian mosfet:
 ![screen-shot-2021-02-24-at-11 25 10-am](https://github.com/robertrullyp/IRRemote-MQTTS/assets/12167355/53a4a614-9ecc-4f50-a1db-024f87e330f5)
+
 
 Fitur :
 1. WebConfig
@@ -36,4 +38,5 @@ Penggunaan
 
 ![photo_2024-04-11_19-15-40](https://github.com/robertrullyp/IRRemote-MQTTS/assets/12167355/c1a319ea-93e0-438a-b82d-86c7dd958124)
 
+Integrasi dengan Home Assistant:
 ![photo_2023-05-05_16-09-44](https://github.com/robertrullyp/IRRemote-MQTTS/assets/12167355/ba63651d-536f-444e-b8f3-36488e225426)
