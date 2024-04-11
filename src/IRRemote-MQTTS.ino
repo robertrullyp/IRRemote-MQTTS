@@ -1,4 +1,4 @@
-#define UID              "NodeMCU-v3-"    //sesuaikan unique id untuk perangkat
+#define UID              "ESP32DevKit-v1-"    //sesuaikan unique id untuk perangkat
 #define USE_TLS    // uncomment (hapus tanda // di awal perintah) jika koneksi mqtt menggunakan SSL/TLS
 
 #if !( defined(ESP8266) ||  defined(ESP32) )
@@ -1059,7 +1059,8 @@ void setup() {
   // Password can be set with it's md5 value as well
   // MD5(admin) = 21232f297a57a5a743894a0e4a801fc3
   // ArduinoOTA.setPasswordHash("21232f297a57a5a743894a0e4a801fc3"); // "admin"
-  ArduinoOTA.setPasswordHash("ac43724f16e9241d990427ab7c8f4228");
+  ArduinoOTA.setPasswordHash("63243dca61b32d6443e99bcc939b222f");
+  // ArduinoOTA.setPasswordHash("ac43724f16e9241d990427ab7c8f4228");
   ArduinoOTA.onStart([]() {
     String type;
     if (ArduinoOTA.getCommand() == U_FLASH) {
