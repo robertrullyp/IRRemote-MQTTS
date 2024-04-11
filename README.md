@@ -10,6 +10,7 @@ Komponen yang dibutuhkan :
 3. Resistor
 4. Mosfet atau Transistor
 5. Sensor Suhu & Kelembaban (AHTxx)
+
 Dapat menggunakan modul IR Emitter:
 ![photo_2024-04-11_19-18-00](https://github.com/robertrullyp/IRRemote-MQTTS/assets/12167355/f3449755-5e8f-4832-9187-043411cd3fff)
 
