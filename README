@@ -29,3 +29,5 @@ Penggunaan
 3. Lakukan konfigurasi parameter wifi & mqtt
 4. Save & Reboot/Reset
 5. Kontrol menggunakan mqtt client atau integrasi dengan dashboard lainnya (ex: Home Assistant, dsb)
+
+![alt text](image.png)
