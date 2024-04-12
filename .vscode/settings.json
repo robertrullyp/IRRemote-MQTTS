@@ -1,3 +1,7 @@
 {
-    "cmake.sourceDirectory": "D:/programming/Platformio/IRRemote-MQTTS/.pio/libdeps/esp32/ArduinoJson/src"
+    "cmake.sourceDirectory": "D:/programming/Platformio/IRRemote-MQTTS/.pio/libdeps/esp32/ArduinoJson/src",
+    "files.associations": {
+        "*.embeddedhtml": "html",
+        "string": "cpp"
+    }
 }
