@@ -1,10 +1,13 @@
-#define UID              "ESP32DevKit-v1-"    //sesuaikan unique id untuk perangkat
-// #define UID              "NodeMCU-v3-"    //sesuaikan unique id untuk perangkat
-#define USE_TLS    // uncomment (hapus tanda // di awal perintah) jika koneksi mqtt menggunakan SSL/TLS
-#define DECODE_AC
 #if !( defined(ESP8266) ||  defined(ESP32) )
 #error This code is intended to run on the ESP8266 or ESP32 platform! Please check your Tools->Board setting.
 #endif
+#ifdef ESP32
+#define UID              "ESP32DevKit-v1-"    //sesuaikan unique id untuk perangkat
+#else
+#define UID              "NodeMCU-v3-"    //sesuaikan unique id untuk perangkat
+#endif
+#define USE_TLS    // uncomment (hapus tanda //) jika koneksi mqtt menggunakan SSL/TLS
+#define DECODE_AC
 #define ESP_WIFIMANAGER_VERSION_MIN_TARGET      "ESP_WiFiManager v1.12.0"
 #define ESP_WIFIMANAGER_VERSION_MIN             1012000
 #define _WIFIMGR_LOGLEVEL_    1     // Use from 0 to 4. Higher number, more debugging messages and memory usage.
@@ -294,8 +297,13 @@ WiFiClient *client           = NULL;  //NON-TLS
 #endif
 PubSubClient   *mqtt         = NULL;
 String ClientNID = UID + String(ESP_getChipId(), HEX);
-const uint16_t kRecvPin = 14;
+#ifdef ESP32
+const uint16_t kRecvPin = 16;
 const uint16_t kIrLed = 27;  // ESP8266 GPIO pin to use. Recommended: 4 (D2).
+#else
+const uint16_t kRecvPin = 14;
+const uint16_t kIrLed = 12;  // ESP8266 GPIO pin to use. Recommended: 4 (D2).
+#endif
 bool irrecst = false;
 const uint16_t kCaptureBufferSize = 1024;
 #if DECODE_AC
@@ -490,7 +498,7 @@ void publishMQTT() {
   //Serial.println(some_number);
   MQTT_connect();
   if (mqtt->publish(String(MQTT_Pub_Topic + "/Sensors/Temperature").c_str(),String(aht10.readTemperature()).c_str())) {
-    Serial.print(F("Tt"));        // T means publishing OK
+    Serial.print(F("T"));        // T means publishing OK
     mqttfailcount = 0 ;
   }
   else {
@@ -498,7 +506,7 @@ void publishMQTT() {
     mqttfailcount = mqttfailcount+1 ;
   }
   if (mqtt->publish(String(MQTT_Pub_Topic + "/Sensors/Humidity").c_str(),String(aht10.readHumidity()).c_str())) {
-    Serial.print(F("Th"));        // Th means publishing OK
+    Serial.print(F("H"));        // H means publishing OK
     mqttfailcount = 0 ;
   }
   else {
@@ -648,11 +656,6 @@ void createNewInstances() {
     else
       Serial.println(F("Failed"));
   }
-#ifdef USE_TLS
-  Serial.println(F("TLS"));
-#else
-  Serial.println(F("NON-TLS"));
-#endif
 }
 
 void wifi_manager() {
@@ -669,7 +672,7 @@ void wifi_manager() {
     Serial.println(F("Got stored Credentials. Timeout 120s"));
   }
   else {
-    ESP_wifiManager.setConfigPortalTimeout(0);
+    ESP_wifiManager.setConfigPortalTimeout(120);
     Serial.print(F("No timeout : "));
     if (initialConfig) {
       Serial.println(F("DRD or No stored Credentials.."));
@@ -1110,6 +1113,11 @@ void setup() {
   ac.setUseFahrenheit(false); //ac.setUseFahrenheit(false), ac.setUseFahrenheit(true)
   ac.setDisplayTempSource(0);
   printState();
+#ifdef USE_TLS
+  Serial.println(F("TLS"));
+#else
+  Serial.println(F("NON-TLS"));
+#endif
 //=================================================================================================================================
 }
 
@@ -1129,17 +1137,15 @@ void loop() {
     //    String description = IRAcUtils::resultAcToString(&results);
     //    if (description.length()) Serial.println(D_STR_MESGDESC ": " + description);
     //    yield();  // Feed the WDT as the text output can take a while to print.
-    Serial.print(F("\nSending HEX code value : "));
-    Serial.print(results.value, HEX);
-    Serial.print("...");
+    Serial.print(F("\nSending HEX code value......."));
 //    if (! mqtt->publish((String(MQTT_Pub_Topic) + "/ir-receiver/code").c_str(), String(results.value, HEX).c_str())) {
 //      Serial.println(F("Failed Sending Code"));
-    if (! mqtt->publish((String(MQTT_Pub_Topic) + "/state/ir-receiver/code").c_str(), String(resultToHumanReadableBasic(&results)).c_str())) {
+    if (!mqtt->publish((String(MQTT_Pub_Topic) + "/state/ir-receiver/code").c_str(), String(resultToHumanReadableBasic(&results)).c_str())) {
       Serial.println(F("Failed Sending Code"));
     } else {
       Serial.println(F("Code Sent!"));
     }
-    Serial.print("Decimal Code :"); Serial.println(results.value, DEC);
+    Serial.print("Decimal Code : "); Serial.println(results.value, DEC);
     Serial.println();
     irrecv.resume();  // Receive the next value
   }
@@ -1153,7 +1159,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
     message += (char)payload[i];
   }
   Serial.println("Message: " + message);
-  if (String(topic) == (MQTT_Sub_Topic + "/set/ac/light").c_str()) ac.setLight(message.toInt());
+  if (String(topic) == MQTT_Sub_Topic + "/set/ac/light") ac.setLight(message.toInt());
   if (String(topic) == MQTT_Sub_Topic + "/set/ac/turbo") ac.setTurbo(message.toInt());
   if (String(topic) == MQTT_Sub_Topic + "/set/ac/xfan") ac.setXFan(message.toInt());
   if (String(topic) == MQTT_Sub_Topic + "/set/ac/sleep") ac.setSleep(message.toInt());
@@ -1190,7 +1196,150 @@ void callback(char* topic, byte* payload, unsigned int length) {
 
 //  if (strstr(topic, (MQTT_Sub_Topic + "/universal").c_str()) != NULL) irsend.send(PANASONIC, 0x40040100BCBD, 48, 0);
 //  if (String(topic) == (MQTT_Sub_Topic + "/universal/tv-panasonic").c_str()) irsend.send(PANASONIC, (strtoull(message.c_str(), NULL, 16)), 48, 0);  //HEX Code manually by MQTT msg, ex : 0x40040100BCBD
-  if (strstr(topic, "/tv-panasonic") != NULL) irsend.send(PANASONIC, (strtoull(message.c_str(), NULL, 16)), 48, 0);  //HEX Code manually by MQTT msg, ex : 0x40040100BCBD
+  if (strstr(topic, "/panasonic") != NULL) irsend.send(PANASONIC, (strtoull(message.c_str(), NULL, 16)), 48, 0);  //HEX Code manually by MQTT msg, ex : 0x40040100BCBD
+  if (strstr(topic, "/gree") != NULL) irsend.send(GREE, (strtoull(message.c_str(), NULL, 16)), 64, 0);  //HEX Code manually by MQTT msg, ex : 0x40040100BCBD
+  if (strstr(topic, "/universal/") != NULL) {
+    /////////////////////////////////////////////////////////////////////////  
+    String topicStr = String(topic);
+    int LastIndex = topicStr.lastIndexOf('/');
+    int SecondLastIndex = topicStr.lastIndexOf('/', LastIndex - 1);
+    String jbit = topicStr.substring(LastIndex + 1);
+    String proto = topicStr.substring(SecondLastIndex + 1, LastIndex);
+    proto.toUpperCase();
+    Serial.print(SecondLastIndex);Serial.print("\t");Serial.println(proto);
+    Serial.print(LastIndex);Serial.print("\t");Serial.println(jbit);
+    /////////////////////////////////////////////////////////////////////////
+    //HEX Code manually by MQTT msg, ex : 0x40040100BCBD
+    if (proto == "RC5") irsend.send(RC5,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "RC6") irsend.send(RC6,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "NEC") irsend.send(NEC,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "SONY") irsend.send(SONY,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "PANASONIC") irsend.send(PANASONIC,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "JVC") irsend.send(JVC,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "SAMSUNG") irsend.send(SAMSUNG,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "WHYNTER") irsend.send(WHYNTER,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "AIWA_RC_T501") irsend.send(AIWA_RC_T501,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "LG") irsend.send(LG,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "SANYO") irsend.send(SANYO,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "MITSUBISHI") irsend.send(MITSUBISHI,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "DISH") irsend.send(DISH,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "SHARP") irsend.send(SHARP,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "COOLIX") irsend.send(COOLIX,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "DAIKIN") irsend.send(DAIKIN,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "DENON") irsend.send(DENON,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "KELVINATOR") irsend.send(KELVINATOR,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "SHERWOOD") irsend.send(SHERWOOD,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "MITSUBISHI_AC") irsend.send(MITSUBISHI_AC,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "RCMM") irsend.send(RCMM,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "SANYO_LC7461") irsend.send(SANYO_LC7461,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "RC5X") irsend.send(RC5X,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "GREE") irsend.send(GREE,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "PRONTO") irsend.send(PRONTO,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "NEC_LIKE") irsend.send(NEC_LIKE,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "ARGO") irsend.send(ARGO,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "TROTEC") irsend.send(TROTEC,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "NIKAI") irsend.send(NIKAI,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "RAW") irsend.send(RAW,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "GLOBALCACHE") irsend.send(GLOBALCACHE,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "TOSHIBA_AC") irsend.send(TOSHIBA_AC,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "FUJITSU_AC") irsend.send(FUJITSU_AC,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "MIDEA") irsend.send(MIDEA,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "MAGIQUEST") irsend.send(MAGIQUEST,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "LASERTAG") irsend.send(LASERTAG,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "CARRIER_AC") irsend.send(CARRIER_AC,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "HAIER_AC") irsend.send(HAIER_AC,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "MITSUBISHI2") irsend.send(MITSUBISHI2,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "HITACHI_AC") irsend.send(HITACHI_AC,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "HITACHI_AC1") irsend.send(HITACHI_AC1,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "HITACHI_AC2") irsend.send(HITACHI_AC2,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "GICABLE") irsend.send(GICABLE,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "HAIER_AC_YRW02") irsend.send(HAIER_AC_YRW02,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "WHIRLPOOL_AC") irsend.send(WHIRLPOOL_AC,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "SAMSUNG_AC") irsend.send(SAMSUNG_AC,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "LUTRON") irsend.send(LUTRON,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "ELECTRA_AC") irsend.send(ELECTRA_AC,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "PANASONIC_AC") irsend.send(PANASONIC_AC,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "PIONEER") irsend.send(PIONEER,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "LG2") irsend.send(LG2,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "MWM") irsend.send(MWM,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "DAIKIN2") irsend.send(DAIKIN2,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "VESTEL_AC") irsend.send(VESTEL_AC,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "TECO") irsend.send(TECO,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "SAMSUNG36") irsend.send(SAMSUNG36,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "TCL112AC") irsend.send(TCL112AC,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "LEGOPF") irsend.send(LEGOPF,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "MITSUBISHI_HEAVY_88") irsend.send(MITSUBISHI_HEAVY_88,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "MITSUBISHI_HEAVY_152") irsend.send(MITSUBISHI_HEAVY_152,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "DAIKIN216") irsend.send(DAIKIN216,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "SHARP_AC") irsend.send(SHARP_AC,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "GOODWEATHER") irsend.send(GOODWEATHER,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "INAX") irsend.send(INAX,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "DAIKIN160") irsend.send(DAIKIN160,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "NEOCLIMA") irsend.send(NEOCLIMA,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "DAIKIN176") irsend.send(DAIKIN176,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "DAIKIN128") irsend.send(DAIKIN128,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "AMCOR") irsend.send(AMCOR,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "DAIKIN152") irsend.send(DAIKIN152,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "MITSUBISHI136") irsend.send(MITSUBISHI136,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "MITSUBISHI112") irsend.send(MITSUBISHI112,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "HITACHI_AC424") irsend.send(HITACHI_AC424,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "SONY_38K") irsend.send(SONY_38K,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "EPSON") irsend.send(EPSON,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "SYMPHONY") irsend.send(SYMPHONY,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "HITACHI_AC3") irsend.send(HITACHI_AC3,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "DAIKIN64") irsend.send(DAIKIN64,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "AIRWELL") irsend.send(AIRWELL,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "DELONGHI_AC") irsend.send(DELONGHI_AC,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "DOSHISHA") irsend.send(DOSHISHA,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "MULTIBRACKETS") irsend.send(MULTIBRACKETS,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "CARRIER_AC40") irsend.send(CARRIER_AC40,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "CARRIER_AC64") irsend.send(CARRIER_AC64,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "HITACHI_AC344") irsend.send(HITACHI_AC344,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "CORONA_AC") irsend.send(CORONA_AC,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "MIDEA24") irsend.send(MIDEA24,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "ZEPEAL") irsend.send(ZEPEAL,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "SANYO_AC") irsend.send(SANYO_AC,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "VOLTAS") irsend.send(VOLTAS,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "METZ") irsend.send(METZ,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "TRANSCOLD") irsend.send(TRANSCOLD,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "TECHNIBEL_AC") irsend.send(TECHNIBEL_AC,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "MIRAGE") irsend.send(MIRAGE,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "ELITESCREENS") irsend.send(ELITESCREENS,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "PANASONIC_AC32") irsend.send(PANASONIC_AC32,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "MILESTAG2") irsend.send(MILESTAG2,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "ECOCLIM") irsend.send(ECOCLIM,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "XMP") irsend.send(XMP,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "TRUMA") irsend.send(TRUMA,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "HAIER_AC176") irsend.send(HAIER_AC176,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "TEKNOPOINT") irsend.send(TEKNOPOINT,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "KELON") irsend.send(KELON,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "TROTEC_3550") irsend.send(TROTEC_3550,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "SANYO_AC88") irsend.send(SANYO_AC88,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "BOSE") irsend.send(BOSE,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "ARRIS") irsend.send(ARRIS,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "RHOSS") irsend.send(RHOSS,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "AIRTON") irsend.send(AIRTON,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "COOLIX48") irsend.send(COOLIX48,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "HITACHI_AC264") irsend.send(HITACHI_AC264,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "KELON168") irsend.send(KELON168,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "HITACHI_AC296") irsend.send(HITACHI_AC296,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "DAIKIN200") irsend.send(DAIKIN200,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "HAIER_AC160") irsend.send(HAIER_AC160,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "CARRIER_AC128") irsend.send(CARRIER_AC128,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "TOTO") irsend.send(TOTO,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "CLIMABUTLER") irsend.send(CLIMABUTLER,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "TCL96AC") irsend.send(TCL96AC,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "BOSCH144") irsend.send(BOSCH144,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "SANYO_AC152") irsend.send(SANYO_AC152,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "DAIKIN312") irsend.send(DAIKIN312,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "GORENJE") irsend.send(GORENJE,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "WOWWEE") irsend.send(WOWWEE,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "CARRIER_AC84") irsend.send(CARRIER_AC84,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "YORK") irsend.send(YORK,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else if (proto == "UNKNOWN") irsend.send(UNKNOWN,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    else irsend.send(UNUSED,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    
+  }
   if (String(topic) == (MQTT_Sub_Topic + "/set/ir-receiver/state") && message == "1") irrecst = true;
   else if (String(topic) == (MQTT_Sub_Topic + "/set/ir-receiver/state") && message == "0") irrecst = false;
 }

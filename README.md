@@ -1,4 +1,6 @@
 ESP Arduino Smart IR Remote via MQTT
+Sketch Arduinonya cek di IRRemote-MQTTS/src/IRRemote-MQTTS.ino
+
 
 Supported MCU :
 1. ESP8266
@@ -33,7 +35,7 @@ https://github.com/crankyoldgit/IRremoteESP8266/blob/master/SupportedProtocols.m
 
 
 Penggunaan :
-1. Flash/Upload Firmware (pake kabel dulu buat upload pertama kali, selanjutnya untuk update program yang udah dikembangin bisa pake otp uploadnya)
+1. Disesuaikan dulu atau dikembangkan dulu arduino codenya sesuai kebutuhan dan peralatan yang dipakai. Flash/Upload Firmware (pake kabel dulu buat upload pertama kali, selanjutnya untuk update program yang udah dikembangin bisa pake otp uploadnya)
 2. Sambungkan wifi ke perangkat dengan menggunakan password yang sama dengan nama ssid (First time config)
 3. Lakukan konfigurasi parameter wifi & mqtt
 4. Save & Reboot/Reset
