@@ -37,6 +37,7 @@ note :
     UID itu disesuaikan aja di sketch arduino atau [UID][ChipID] itu bisa dilihat berdasarkan nama SSID waktu ESP di mode webconfig
 
 Untuk struktur topic ACnya lebih lanjut cek pake [MQTT Explorer](https://mqtt-explorer.com/) aja yaa karna mungkin aja nanti akan ada update sketch kalau lagi gabut. ESP akan ngirim state AC & sensor terus menerus secara berkala, dan struktur topic kurang lebih gini (abaikan yang homeassistant) :
+
 ![MQTT Struct](https://github.com/robertrullyp/IRRemote-MQTTS/assets/12167355/fab3467e-4508-46a2-be18-f7ab97fc22d2)
 
 ## Library
@@ -52,7 +53,7 @@ pubsubclient
 
 
 ## Module & Components Diagram
-* [LED IR Transmitter](https://www.vishay.com/docs/81011/tsal6400.pdf) ![tsal6400](https://au.element14.com/productimages/standard/en_GB/42747093.jpg)
+* [LED IR Transmitter](https://www.vishay.com/docs/81011/tsal6400.pdf) ![tsal6400](https://github.com/robertrullyp/IRRemote-MQTTS/assets/12167355/64e7a0ab-72c4-494f-bddd-782917146ad8)
 * [LED IR Receiver](https://www.sparkfun.com/datasheets/Sensors/Infrared/tsop382.pdf) ![vs1838b](https://cdn.webshopapp.com/shops/144750/files/220123337/vs1838b-infrared-receiver-38khz.jpg)
 * [Sensor Suhu & Kelembaban](https://server4.eca.ir/eshop/AHT10/Aosong_AHT10_en_draft_0c.pdf) ![AHT10](https://ezmation.com/101-medium_default/aht10-temperature-and-humidity-sensor-i2c.jpg)
 * Resistor
@@ -80,7 +81,7 @@ Integrasi dengan Home Assistant:
 
 ![photo_2023-05-05_16-09-44](https://github.com/robertrullyp/IRRemote-MQTTS/assets/12167355/ba63651d-536f-444e-b8f3-36488e225426)
 
-(https://github.com/robertrullyp/IRRemote-MQTTS/assets/12167355/75182d38-0b2f-40bb-9a3a-3af6e9f59962)
+https://github.com/robertrullyp/IRRemote-MQTTS/assets/12167355/75182d38-0b2f-40bb-9a3a-3af6e9f59962
 
 
 https://github.com/robertrullyp/IRRemote-MQTTS/assets/12167355/f4d919bb-fa94-40f4-b695-e09f36397f24  
