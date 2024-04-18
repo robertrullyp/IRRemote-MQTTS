@@ -151,6 +151,7 @@ DoubleResetDetector* drd = NULL;
 const char* CONFIG_FILE = "/ConfigMQTT.json";
 // Default configuration values for MQTT
 #define SERVER              "iotsmarthome.my.id"
+#define SERVER_LOCAL        "192.168.1.93"
 #ifdef USE_TLS
 #define SERVERPORT          "8883"   // Default Port TLS
 #else
@@ -161,6 +162,7 @@ const char* CONFIG_FILE = "/ConfigMQTT.json";
 #define FINGERPRINT         "C8:58:1B:0B:83:DE:D4:C6:A2:39:D9:03:9F:9B:6F:B0:5C:45:55:9F"
 // Labels for custom parameters in WiFi manager
 #define SERVER_Label             "SERVER_Label"
+#define SERVER_LOCAL_Label       "SERVER_LOCAL_Label"
 #define SERVERPORT_Label         "SERVERPORT_Label"
 #define USERNAME_Label           "USERNAME_Label"
 #define KEY_Label                "KEY_Label"
@@ -171,12 +173,14 @@ String MQTT_Status_Topic    = "private/status";
 String MQTT_Sub_Topic       = "private/set";
 // Variables to save custom parameters to...
 // I would like to use these instead of #defines
-#define custom_SERVER_LEN       20
-#define custom_PORT_LEN          5
-#define custom_USERNAME_LEN     20
-#define custom_KEY_LEN          40
-#define custom_FINGERPRINT_LEN  62
+#define custom_SERVER_LEN             20
+#define custom_SERVER_LOCAL_LEN       20
+#define custom_PORT_LEN               5
+#define custom_USERNAME_LEN           20
+#define custom_KEY_LEN                40
+#define custom_FINGERPRINT_LEN        62
 char custom_SERVER[custom_SERVER_LEN];
+char custom_SERVER_LOCAL[custom_SERVER_LOCAL_LEN];
 char custom_SERVERPORT[custom_PORT_LEN];
 char custom_USERNAME[custom_USERNAME_LEN];
 char custom_KEY[custom_KEY_LEN];
@@ -254,8 +258,8 @@ bool initialConfig = false;       // Indicates whether ESP has WiFi credentials 
 #warning Using DHCP IP
 #endif
 IPAddress stationIP   = IPAddress(0, 0, 0, 0);
-IPAddress gatewayIP   = IPAddress(192, 168, 1, 1);
-IPAddress netMask     = IPAddress(255, 255, 255, 0);
+IPAddress gatewayIP   = IPAddress(0, 0, 0, 0);
+IPAddress netMask     = IPAddress(0, 0, 0, 0);
 #else                         // Use static IP
 #if (_WIFIMGR_LOGLEVEL_ > 3)
 #warning Using static IP
@@ -304,6 +308,7 @@ const uint16_t kIrLed = 27;  // ESP8266 GPIO pin to use. Recommended: 4 (D2).
 const uint16_t kRecvPin = 14;
 const uint16_t kIrLed = 12;  // ESP8266 GPIO pin to use. Recommended: 4 (D2).
 #endif
+bool serverprio = false;   //false: prioritas server lokal, true: prioritas server inet
 bool irrecst = false;
 const uint16_t kCaptureBufferSize = 1024;
 #if DECODE_AC
@@ -491,11 +496,6 @@ void heartBeatPrint() {
 }
 
 void publishMQTT() {
-//  float temperature, humidity;
-//  AHTSensor(&temperature, &humidity);
-  // For debug only
-  //Serial.print(F("Published Temp = "));
-  //Serial.println(some_number);
   MQTT_connect();
   if (mqtt->publish(String(MQTT_Pub_Topic + "/Sensors/Temperature").c_str(),String(aht10.readTemperature()).c_str())) {
     Serial.print(F("T"));        // T means publishing OK
@@ -513,7 +513,7 @@ void publishMQTT() {
     Serial.print(F("F"));        // F means publishing failure
     mqttfailcount = mqttfailcount+1 ;
   }
-  if (mqttfailcount >= 15) 
+  if (mqttfailcount >= 10) 
 #if ESP8266
     ESP.reset();
 #else
@@ -637,24 +637,23 @@ void createNewInstances() {
   }
   if (!mqtt) {  // Create new instances from new data
     //Setup the MQTT client class by passing in the WiFi client and MQTT server and login details.
-    //mqtt = new Adafruit_MQTT_Client(client, custom_AIO_SERVER, atoi(custom_AIO_SERVERPORT), custom_AIO_USERNAME, custom_AIO_KEY);
-    mqtt = new PubSubClient(custom_SERVER,atoi(custom_SERVERPORT),*client);
-    mqtt->setCallback(callback);
+    if (serverprio == false) {mqtt = new PubSubClient(custom_SERVER_LOCAL,atoi(custom_SERVERPORT),callback,*client);Serial.println("PAKE SERVER LOCAL");}
+    else { mqtt = new PubSubClient(custom_SERVER,atoi(custom_SERVERPORT),callback,*client);Serial.println("PAKE SERVER IOT");
+    }
+    // mqtt->setCallback(callback);
     mqtt->connect(ClientNID.c_str(),custom_USERNAME, custom_KEY);
     MQTT_Sub_Topic = String(custom_USERNAME) + "/" + ClientNID;
-//    MQTT_Sub_Topic = "nodemcuv3";
     mqtt->subscribe((MQTT_Sub_Topic + "/set/#").c_str());
-//    EspMQTTClient = new client(custom_SERVER, atoi(custom_SERVERPORT), custom_USERNAME, custom_KEY, ClientNID);
 
     Serial.print(F("Creating new MQTT object : "));
     if (mqtt) {
       Serial.println(F("OK"));
-      Serial.println(String("SERVER = ")    + custom_SERVER    + ", SERVERPORT = "  + custom_SERVERPORT);
-      Serial.println(String("USERNAME = ")  + custom_USERNAME  + ", KEY = "         + custom_KEY);
-      Serial.println(String("FINGERPRINT = ")  + custom_FINGERPRINT);
+      Serial.println(String("SERVER = ")    + custom_SERVER    + ", SERVER LOCAL = "  + custom_SERVER_LOCAL );
+      Serial.println(String("USERNAME = ")  + custom_USERNAME  + ", KEY = "           + custom_KEY + "SERVERPORT = " + custom_SERVERPORT);
+      Serial.println(String("FINGERPRINT = ")  + custom_FINGERPRINT );
     }
     else
-      Serial.println(F("Failed"));
+      Serial.println(F("Failed Create MQTT Instance"));
   }
 }
 
@@ -687,6 +686,7 @@ void wifi_manager() {
   // Format: <ID> <Placeholder text> <default value> <length> <custom HTML> <label placement>
   // (*** we are not using <custom HTML> and <label placement> ***)
   ESP_WMParameter SERVER_FIELD(SERVER_Label, "SERVER", custom_SERVER, custom_SERVER_LEN + 1);  // SERVER
+  ESP_WMParameter SERVER_LOCAL_FIELD(SERVER_LOCAL_Label, "SERVER LOCAL", custom_SERVER_LOCAL, custom_SERVER_LOCAL_LEN + 1);  // SERVER
   ESP_WMParameter SERVERPORT_FIELD(SERVERPORT_Label, "SERVER PORT", custom_SERVERPORT, custom_PORT_LEN + 1);  // SERVERPORT
   ESP_WMParameter USERNAME_FIELD(USERNAME_Label, "USERNAME", custom_USERNAME, custom_USERNAME_LEN + 1);  // USERNAME
   ESP_WMParameter KEY_FIELD(KEY_Label, "KEY", custom_KEY, custom_KEY_LEN + 1);  // PASSWORD
@@ -694,6 +694,7 @@ void wifi_manager() {
 
   // add all parameters here
   ESP_wifiManager.addParameter(&SERVER_FIELD);
+  ESP_wifiManager.addParameter(&SERVER_LOCAL_FIELD);
   ESP_wifiManager.addParameter(&SERVERPORT_FIELD);
   ESP_wifiManager.addParameter(&USERNAME_FIELD);
   ESP_wifiManager.addParameter(&KEY_FIELD);
@@ -748,6 +749,8 @@ void wifi_manager() {
     Serial.println(F("Connected...yeey :)"));
     Serial.print(F("Local IP: "));
     Serial.println(WiFi.localIP());
+    Serial.print(F("Subnet Mask: "));
+    Serial.println(WiFi.subnetMask());
     Serial.print(F("Gateway IP: "));
     Serial.println(WiFi.gatewayIP());
   }
@@ -802,6 +805,7 @@ void wifi_manager() {
   // Getting posted form values and overriding local variables parameters
   // Config file is written regardless the connection state
   strcpy(custom_SERVER, SERVER_FIELD.getValue());
+  strcpy(custom_SERVER_LOCAL, SERVER_LOCAL_FIELD.getValue());
   strcpy(custom_SERVERPORT, SERVERPORT_FIELD.getValue());
   strcpy(custom_USERNAME, USERNAME_FIELD.getValue());
   strcpy(custom_KEY, KEY_FIELD.getValue());
@@ -848,6 +852,9 @@ bool readConfigFile() {
     if (json.containsKey(SERVER_Label)) {
       strcpy(custom_SERVER, json[SERVER_Label]);
     }
+    if (json.containsKey(SERVER_LOCAL_Label)) {
+      strcpy(custom_SERVER_LOCAL, json[SERVER_LOCAL_Label]);
+    }
     if (json.containsKey(SERVERPORT_Label)) {
       strcpy(custom_SERVERPORT, json[SERVERPORT_Label]);
     }
@@ -874,11 +881,12 @@ bool writeConfigFile() {
   JsonObject& json = jsonBuffer.createObject();
 #endif
   // JSONify local configuration parameters
-  json[SERVER_Label]      = custom_SERVER;
-  json[SERVERPORT_Label]  = custom_SERVERPORT;
-  json[USERNAME_Label]    = custom_USERNAME;
-  json[KEY_Label]         = custom_KEY;
-  json[FINGERPRINT_Label] = custom_FINGERPRINT;
+  json[SERVER_Label]            = custom_SERVER;
+  json[SERVER_LOCAL_Label]      = custom_SERVER_LOCAL;
+  json[SERVERPORT_Label]        = custom_SERVERPORT;
+  json[USERNAME_Label]          = custom_USERNAME;
+  json[KEY_Label]               = custom_KEY;
+  json[FINGERPRINT_Label]       = custom_FINGERPRINT;
 
   File f = FileFS.open(CONFIG_FILE, "w");  // Open file for writing
   if (!f) {
@@ -904,6 +912,8 @@ void newConfigData() {
   Serial.println();
   Serial.print(F("custom_SERVER: "));
   Serial.println(custom_SERVER);
+  Serial.print(F("custom_SERVER_LOCAL: "));
+  Serial.println(custom_SERVER_LOCAL);
   Serial.print(F("custom_SERVERPORT: "));
   Serial.println(custom_SERVERPORT);
   Serial.print(F("custom_USERNAME: "));
@@ -916,7 +926,7 @@ void newConfigData() {
 }
 
 void MQTT_connect() {
-  int8_t ret;
+  bool ret;
   MQTT_Pub_Topic = String(custom_USERNAME) + "/" + ClientNID;
   MQTT_Status_Topic = String(custom_USERNAME) + "/" + ClientNID + "/state";
   createNewInstances();
@@ -924,9 +934,12 @@ void MQTT_connect() {
   if (mqtt->connected()) {
     return;
   }
-  Serial.println(F("Connecting to MQTT (3 attempts)..."));
-  uint8_t attempt = 3;
-  while ((ret = mqtt->connected()) != 0) {    // connect will return 0 for connected
+  Serial.println(F("Connecting to MQTT (2 attempts)..."));
+  uint8_t attempt = 2;
+  serverprio = !serverprio;
+  deleteOldInstances();
+  createNewInstances();
+  while ((ret = mqtt->connect(ClientNID.c_str(),custom_USERNAME, custom_KEY)) != 1) {    // connect will return 0 for connected
 //    Serial.println(mqtt->connectErrorString(ret));
     Serial.println(mqtt->state());
     Serial.println(F("Another attemtpt to connect to MQTT in 2 seconds..."));
