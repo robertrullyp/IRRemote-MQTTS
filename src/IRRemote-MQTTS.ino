@@ -1,12 +1,12 @@
 #if !( defined(ESP8266) ||  defined(ESP32) )
 #error This code is intended to run on the ESP8266 or ESP32 platform! Please check your Tools->Board setting.
 #endif
+#define USE_SSL          //Uncomment jika koneksi menggunakan SSL/TLS
 #ifdef ESP32
 #define UID              "ESP32DevKit-v1-"    //sesuaikan unique id untuk perangkat
 #else
 #define UID              "NodeMCU-v3-"    //sesuaikan unique id untuk perangkat
 #endif
-#define USE_TLS    // uncomment (hapus tanda //) jika koneksi mqtt menggunakan SSL/TLS
 #define DECODE_AC
 #define ESP_WIFIMANAGER_VERSION_MIN_TARGET      "ESP_WiFiManager v1.12.0"
 #define ESP_WIFIMANAGER_VERSION_MIN             1012000
@@ -152,11 +152,9 @@ const char* CONFIG_FILE = "/ConfigMQTT.json";
 // Default configuration values for MQTT
 #define SERVER              "iotsmarthome.my.id"
 #define SERVER_LOCAL        "192.168.1.93"
-#ifdef USE_TLS
-#define SERVERPORT          "8883"   // Default Port TLS
-#else
 #define SERVERPORT          "1883"   // Default Port NON-TLS
-#endif
+#define USE_SSL_TLS         "1"
+#define SERVERPRIO          "1"
 #define USERNAME            "usertest"
 #define KEY                 "usertest"
 #define FINGERPRINT         "C8:58:1B:0B:83:DE:D4:C6:A2:39:D9:03:9F:9B:6F:B0:5C:45:55:9F"
@@ -164,6 +162,8 @@ const char* CONFIG_FILE = "/ConfigMQTT.json";
 #define SERVER_Label             "SERVER_Label"
 #define SERVER_LOCAL_Label       "SERVER_LOCAL_Label"
 #define SERVERPORT_Label         "SERVERPORT_Label"
+#define USE_SSL_TLS_Label        "USE_SSL_TLS_Label"
+#define SERVERPRIO_Label         "SERVERPRIO_Label"
 #define USERNAME_Label           "USERNAME_Label"
 #define KEY_Label                "KEY_Label"
 #define FINGERPRINT_Label        "FINGERPRINT_Label"
@@ -182,9 +182,12 @@ String MQTT_Sub_Topic       = "private/set";
 char custom_SERVER[custom_SERVER_LEN];
 char custom_SERVER_LOCAL[custom_SERVER_LOCAL_LEN];
 char custom_SERVERPORT[custom_PORT_LEN];
+bool custom_USE_SSL_TLS;             //false: Non-SSL/TLS, true: SSL/TLS
+bool custom_SERVERPRIO;              //false: prioritas server lokal, true: prioritas server inet
 char custom_USERNAME[custom_USERNAME_LEN];
 char custom_KEY[custom_KEY_LEN];
 char custom_FINGERPRINT[custom_FINGERPRINT_LEN];
+bool servernet;
 // Function Prototypes
 void MQTT_connect();
 bool readConfigFile();
@@ -294,7 +297,7 @@ int mqttfailcount = 0;
 #define HTTP_PORT           80
 
 // Create an ESP32 WiFiClient class to connect to the MQTT server
-#ifdef USE_TLS
+#ifdef USE_SSL
 WiFiClientSecure *client     = NULL;  //TLS
 #else
 WiFiClient *client           = NULL;  //NON-TLS
@@ -308,7 +311,6 @@ const uint16_t kIrLed = 27;  // ESP8266 GPIO pin to use. Recommended: 4 (D2).
 const uint16_t kRecvPin = 14;
 const uint16_t kIrLed = 12;  // ESP8266 GPIO pin to use. Recommended: 4 (D2).
 #endif
-bool serverprio = false;   //false: prioritas server lokal, true: prioritas server inet
 bool irrecst = false;
 const uint16_t kCaptureBufferSize = 1024;
 #if DECODE_AC
@@ -322,36 +324,13 @@ const uint8_t kTimeout = 15;
 const uint16_t kMinUnknownSize = 12;
 const uint8_t kTolerancePercentage = kTolerance;  // kTolerance is normally 25%
 #define LEGACY_TIMING_INFO false
-IRGreeAC ac(kIrLed);  // Set the GPIO to be used for sending messages.
+IRGreeAC ac(kIrLed);  // Set the GPIO to be used for sending AC messages.
+IRac irac(kIrLed);  // Set the GPIO to be used for sending AC messages.
 IRsend irsend(kIrLed);  // Set the GPIO to be used to sending the message.
 IRrecv irrecv(kRecvPin, kCaptureBufferSize, kTimeout, true);
 decode_results results;
 AHTxx aht10(AHTXX_ADDRESS_X38, AHT1x_SENSOR); //sensor address, sensor type
-
-
-///////////////////////////////////////////
-// New in v1.4.0
-/******************************************
-   // Defined in ESPAsync_WiFiManager.h
-  typedef struct
-  {
-  IPAddress _ap_static_ip;
-  IPAddress _ap_static_gw;
-  IPAddress _ap_static_sn;
-
-  }  WiFi_AP_IPConfig;
-
-  typedef struct
-  {
-  IPAddress _sta_static_ip;
-  IPAddress _sta_static_gw;
-  IPAddress _sta_static_sn;
-  #if USE_CONFIGURABLE_DNS
-  IPAddress _sta_static_dns1;
-  IPAddress _sta_static_dns2;
-  #endif
-  }  WiFi_STA_IPConfig;
-******************************************/
+String serin = "";
 
 WiFi_AP_IPConfig  WM_AP_IPconfig;
 WiFi_STA_IPConfig WM_STA_IPconfig;
@@ -594,6 +573,7 @@ bool loadConfigData() {
     LOGERROR(F("failed"));
     return false;
   }
+  servernet = custom_SERVERPRIO;
 }
 
 void saveConfigData() {
@@ -622,7 +602,7 @@ void deleteOldInstances() {  // Delete previous instances
 
 void createNewInstances() {
   if (!client) {
-#ifdef USE_TLS
+#ifdef USE_SSL
     client = new WiFiClientSecure(); //TLS
 #ifdef ESP32
     client->setInsecure();
@@ -637,10 +617,14 @@ void createNewInstances() {
   }
   if (!mqtt) {  // Create new instances from new data
     //Setup the MQTT client class by passing in the WiFi client and MQTT server and login details.
-    if (serverprio == false) {mqtt = new PubSubClient(custom_SERVER_LOCAL,atoi(custom_SERVERPORT),callback,*client);Serial.println("PAKE SERVER LOCAL");}
-    else { mqtt = new PubSubClient(custom_SERVER,atoi(custom_SERVERPORT),callback,*client);Serial.println("PAKE SERVER IOT");
+    if (servernet == false) {
+      mqtt = new PubSubClient(custom_SERVER_LOCAL,atoi(custom_SERVERPORT),callback,*client);
+      Serial.println("PAKE SERVER LOCAL");
+      }
+    else { 
+      mqtt = new PubSubClient(custom_SERVER,atoi(custom_SERVERPORT),callback,*client);
+      Serial.println("PAKE SERVER IOT");
     }
-    // mqtt->setCallback(callback);
     mqtt->connect(ClientNID.c_str(),custom_USERNAME, custom_KEY);
     MQTT_Sub_Topic = String(custom_USERNAME) + "/" + ClientNID;
     mqtt->subscribe((MQTT_Sub_Topic + "/set/#").c_str());
@@ -648,8 +632,8 @@ void createNewInstances() {
     Serial.print(F("Creating new MQTT object : "));
     if (mqtt) {
       Serial.println(F("OK"));
-      Serial.println(String("SERVER = ")    + custom_SERVER    + ", SERVER LOCAL = "  + custom_SERVER_LOCAL );
-      Serial.println(String("USERNAME = ")  + custom_USERNAME  + ", KEY = "           + custom_KEY + "SERVERPORT = " + custom_SERVERPORT);
+      Serial.println(String("SERVER = ")    + custom_SERVER    + ", SERVER LOCAL = "  + custom_SERVER_LOCAL + ", INET PRIORITY = " + custom_SERVERPRIO);
+      Serial.println(String("USERNAME = ")  + custom_USERNAME  + ", KEY = "           + custom_KEY + ", SERVERPORT = " + custom_SERVERPORT + ", USE SSL/TLS = " + custom_USE_SSL_TLS);
       Serial.println(String("FINGERPRINT = ")  + custom_FINGERPRINT );
     }
     else
@@ -685,9 +669,17 @@ void wifi_manager() {
   // After connecting, parameter.getValue() will get you the configured value
   // Format: <ID> <Placeholder text> <default value> <length> <custom HTML> <label placement>
   // (*** we are not using <custom HTML> and <label placement> ***)
+  char chtml[24] = "type=\"checkbox\"";
+  char chtml2[24] = "type=\"checkbox\"";
+  if (custom_USE_SSL_TLS == 1) strcat(chtml, " checked");
+  else strcpy(chtml, "type=\"checkbox\"");
+  if (custom_SERVERPRIO == 1) strcat(chtml2, " checked");
+  else strcpy(chtml2, "type=\"checkbox\"");
   ESP_WMParameter SERVER_FIELD(SERVER_Label, "SERVER", custom_SERVER, custom_SERVER_LEN + 1);  // SERVER
-  ESP_WMParameter SERVER_LOCAL_FIELD(SERVER_LOCAL_Label, "SERVER LOCAL", custom_SERVER_LOCAL, custom_SERVER_LOCAL_LEN + 1);  // SERVER
+  ESP_WMParameter SERVER_LOCAL_FIELD(SERVER_LOCAL_Label, "SERVER LOCAL", custom_SERVER_LOCAL, custom_SERVER_LOCAL_LEN + 1);  // LOCAL SERVER
   ESP_WMParameter SERVERPORT_FIELD(SERVERPORT_Label, "SERVER PORT", custom_SERVERPORT, custom_PORT_LEN + 1);  // SERVERPORT
+  ESP_WMParameter USE_SSL_TLS_FIELD(USE_SSL_TLS_Label, "USE SSL/TLS (Not Yet Works, USE CODE!)", "Y", 2, chtml, WFM_LABEL_AFTER);  // SSL/TLS
+  ESP_WMParameter SERVERPRIO_FIELD(SERVERPRIO_Label, "INET(IOT) SERVER PRIORITY", "Y", 2, chtml2, WFM_LABEL_AFTER);  // SSL/TLS
   ESP_WMParameter USERNAME_FIELD(USERNAME_Label, "USERNAME", custom_USERNAME, custom_USERNAME_LEN + 1);  // USERNAME
   ESP_WMParameter KEY_FIELD(KEY_Label, "KEY", custom_KEY, custom_KEY_LEN + 1);  // PASSWORD
   ESP_WMParameter FINGERPRINT_FIELD(FINGERPRINT_Label, "FINGERPRINT", custom_FINGERPRINT, custom_FINGERPRINT_LEN + 1);  // FINGERPRINT
@@ -696,6 +688,8 @@ void wifi_manager() {
   ESP_wifiManager.addParameter(&SERVER_FIELD);
   ESP_wifiManager.addParameter(&SERVER_LOCAL_FIELD);
   ESP_wifiManager.addParameter(&SERVERPORT_FIELD);
+  ESP_wifiManager.addParameter(&USE_SSL_TLS_FIELD);
+  ESP_wifiManager.addParameter(&SERVERPRIO_FIELD);
   ESP_wifiManager.addParameter(&USERNAME_FIELD);
   ESP_wifiManager.addParameter(&KEY_FIELD);
   ESP_wifiManager.addParameter(&FINGERPRINT_FIELD);
@@ -807,6 +801,8 @@ void wifi_manager() {
   strcpy(custom_SERVER, SERVER_FIELD.getValue());
   strcpy(custom_SERVER_LOCAL, SERVER_LOCAL_FIELD.getValue());
   strcpy(custom_SERVERPORT, SERVERPORT_FIELD.getValue());
+  custom_USE_SSL_TLS = (strncmp(USE_SSL_TLS_FIELD.getValue(), "Y", 1) == 0);
+  custom_SERVERPRIO = (strncmp(SERVERPRIO_FIELD.getValue(), "Y", 1) == 0);
   strcpy(custom_USERNAME, USERNAME_FIELD.getValue());
   strcpy(custom_KEY, KEY_FIELD.getValue());
   strcpy(custom_FINGERPRINT, FINGERPRINT_FIELD.getValue());
@@ -858,6 +854,12 @@ bool readConfigFile() {
     if (json.containsKey(SERVERPORT_Label)) {
       strcpy(custom_SERVERPORT, json[SERVERPORT_Label]);
     }
+    if (json.containsKey(USE_SSL_TLS_Label)) {
+      custom_USE_SSL_TLS = json[USE_SSL_TLS_Label];
+    }
+    if (json.containsKey(SERVERPRIO_Label)) {
+      custom_SERVERPRIO = json[SERVERPRIO_Label];
+    }
     if (json.containsKey(USERNAME_Label)) {
       strcpy(custom_USERNAME, json[USERNAME_Label]);
     }
@@ -884,6 +886,8 @@ bool writeConfigFile() {
   json[SERVER_Label]            = custom_SERVER;
   json[SERVER_LOCAL_Label]      = custom_SERVER_LOCAL;
   json[SERVERPORT_Label]        = custom_SERVERPORT;
+  json[USE_SSL_TLS_Label]       = custom_USE_SSL_TLS;
+  json[SERVERPRIO_Label]        = custom_SERVERPRIO;
   json[USERNAME_Label]          = custom_USERNAME;
   json[KEY_Label]               = custom_KEY;
   json[FINGERPRINT_Label]       = custom_FINGERPRINT;
@@ -916,6 +920,10 @@ void newConfigData() {
   Serial.println(custom_SERVER_LOCAL);
   Serial.print(F("custom_SERVERPORT: "));
   Serial.println(custom_SERVERPORT);
+  Serial.print(F("custom_USE_SSL_TLS: "));
+  Serial.println(custom_USE_SSL_TLS);
+  Serial.print(F("custom_SERVERPRIO: "));
+  Serial.println(custom_SERVERPRIO);
   Serial.print(F("custom_USERNAME: "));
   Serial.println(custom_USERNAME);
   Serial.print(F("custom_KEY: "));
@@ -936,7 +944,7 @@ void MQTT_connect() {
   }
   Serial.println(F("Connecting to MQTT (2 attempts)..."));
   uint8_t attempt = 2;
-  serverprio = !serverprio;
+  servernet = !servernet;
   deleteOldInstances();
   createNewInstances();
   while ((ret = mqtt->connect(ClientNID.c_str(),custom_USERNAME, custom_KEY)) != 1) {    // connect will return 0 for connected
@@ -1064,6 +1072,7 @@ void setup() {
     else if ( WiFi.status() != WL_CONNECTED ) {
       Serial.println(F("ConnectMultiWiFi in setup"));
       connectMultiWiFi();
+      servernet = custom_SERVERPRIO;
     }
   }
   digitalWrite(LED_BUILTIN, LED_OFF); // Turn led off as we are not in configuration mode.
@@ -1126,7 +1135,7 @@ void setup() {
   ac.setUseFahrenheit(false); //ac.setUseFahrenheit(false), ac.setUseFahrenheit(true)
   ac.setDisplayTempSource(0);
   printState();
-#ifdef USE_TLS
+#ifdef USE_SSL
   Serial.println(F("TLS"));
 #else
   Serial.println(F("NON-TLS"));
@@ -1162,7 +1171,27 @@ void loop() {
     Serial.println();
     irrecv.resume();  // Receive the next value
   }
+  if (Serial.available() > 0) {     // Serial Data Format {"Protocol":"GREE","Model":"YAW1F","Power":1,"Mode":"kCool","Temperature":24,"Fan":"kAuto","SwingV":"kAuto","Quiet":0,"Turbo":0,"Eco":0,"Light":1,"Beep":1}
+    char data = Serial.read();
+    serin += data;
+    if (data == '\n') {
+      DynamicJsonDocument jdata(1024);
+      deserializeJson(jdata, serin);
+      if (!jdata["Protocol"].isNull()) {
+        irac.sendAc(protocol(jdata["Protocol"]), irac.strToModel(jdata["Model"]), jdata["Power"], irac.strToOpmode(jdata["Mode"]), jdata["Temperature"], 1, irac.strToFanspeed(jdata["Fan"]), irac.strToSwingV(jdata["SwingV"]), irac.strToSwingH("kAuto"), jdata["Quiet"], jdata["Turbo"], jdata["Eco"], jdata["Light"], 0, 0, jdata["Beep"], -1, -1);
+        Serial.println();
+        serializeJsonPretty(jdata,Serial);
+        Serial.println();
+      }
+      serin="";
+    }
+  }
 }
+
+// void     if (jbit != "AC") irsend.send(protocol(proto),(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+//     // irac.sendAc(const decode_type_t vendor, const int16_t model, const bool power, const stdAc::opmode_t mode, const float degrees, const bool celsius, const stdAc::fanspeed_t fan, const stdAc::swingv_t swingv, const stdAc::swingh_t swingh, const bool quiet, const bool turbo, const bool econo, const bool light, const bool filter, const bool clean, const bool beep, const int16_t sleep=-1, const int16_t clock=-1);
+//     else irac.sendAc(protocol(proto), YAW1F, message.toInt(), irac.strToOpmode("kAuto"), 25, 1, irac.strToFanspeed("kAuto"), irac.strToSwingV("kAuto"), irac.strToSwingH("kAuto"), 0, 0, 0, 1, 0, 0, 1, -1, -1);
+
 
 void callback(char* topic, byte* payload, unsigned int length) {
   Serial.print("Message received on topic: ");
@@ -1216,142 +1245,152 @@ void callback(char* topic, byte* payload, unsigned int length) {
     int LastIndex = topicStr.lastIndexOf('/');
     int SecondLastIndex = topicStr.lastIndexOf('/', LastIndex - 1);
     String jbit = topicStr.substring(LastIndex + 1);
-    String pcek = topicStr.substring(SecondLastIndex + 1, LastIndex);
-    pcek.toUpperCase();
+    String proto = topicStr.substring(SecondLastIndex + 1, LastIndex);
+    proto.toUpperCase();
+    jbit.toUpperCase();
     //HEX Code manually by MQTT msg, ex : 0x40040100BCBD
-    auto proto = UNUSED;
-    if (pcek == "UNKNOWN") proto = UNKNOWN;
-    else if (pcek == "RC5") proto = RC5;
-    else if (pcek == "RC6") proto = RC6;
-    else if (pcek == "NEC") proto = NEC;
-    else if (pcek == "SONY") proto = SONY;
-    else if (pcek == "PANASONIC") proto = PANASONIC;
-    else if (pcek == "JVC") proto = JVC;
-    else if (pcek == "SAMSUNG") proto = SAMSUNG;
-    else if (pcek == "WHYNTER") proto = WHYNTER;
-    else if (pcek == "AIWA_RC_T501") proto = AIWA_RC_T501;
-    else if (pcek == "LG") proto = LG;
-    else if (pcek == "SANYO") proto = SANYO;
-    else if (pcek == "MITSUBISHI") proto = MITSUBISHI;
-    else if (pcek == "DISH") proto = DISH;
-    else if (pcek == "SHARP") proto = SHARP;
-    else if (pcek == "COOLIX") proto = COOLIX;
-    else if (pcek == "DAIKIN") proto = DAIKIN;
-    else if (pcek == "DENON") proto = DENON;
-    else if (pcek == "KELVINATOR") proto = KELVINATOR;
-    else if (pcek == "SHERWOOD") proto = SHERWOOD;
-    else if (pcek == "MITSUBISHI_AC") proto = MITSUBISHI_AC;
-    else if (pcek == "RCMM") proto = RCMM;
-    else if (pcek == "SANYO_LC7461") proto = SANYO_LC7461;
-    else if (pcek == "RC5X") proto = RC5X;
-    else if (pcek == "GREE") proto = GREE;
-    else if (pcek == "PRONTO") proto = PRONTO;
-    else if (pcek == "NEC_LIKE") proto = NEC_LIKE;
-    else if (pcek == "ARGO") proto = ARGO;
-    else if (pcek == "TROTEC") proto = TROTEC;
-    else if (pcek == "NIKAI") proto = NIKAI;
-    else if (pcek == "RAW") proto = RAW;
-    else if (pcek == "GLOBALCACHE") proto = GLOBALCACHE;
-    else if (pcek == "TOSHIBA_AC") proto = TOSHIBA_AC;
-    else if (pcek == "FUJITSU_AC") proto = FUJITSU_AC;
-    else if (pcek == "MIDEA") proto = MIDEA;
-    else if (pcek == "MAGIQUEST") proto = MAGIQUEST;
-    else if (pcek == "LASERTAG") proto = LASERTAG;
-    else if (pcek == "CARRIER_AC") proto = CARRIER_AC;
-    else if (pcek == "HAIER_AC") proto = HAIER_AC;
-    else if (pcek == "MITSUBISHI2") proto = MITSUBISHI2;
-    else if (pcek == "HITACHI_AC") proto = HITACHI_AC;
-    else if (pcek == "HITACHI_AC1") proto = HITACHI_AC1;
-    else if (pcek == "HITACHI_AC2") proto = HITACHI_AC2;
-    else if (pcek == "GICABLE") proto = GICABLE;
-    else if (pcek == "HAIER_AC_YRW02") proto = HAIER_AC_YRW02;
-    else if (pcek == "WHIRLPOOL_AC") proto = WHIRLPOOL_AC;
-    else if (pcek == "SAMSUNG_AC") proto = SAMSUNG_AC;
-    else if (pcek == "LUTRON") proto = LUTRON;
-    else if (pcek == "ELECTRA_AC") proto = ELECTRA_AC;
-    else if (pcek == "PANASONIC_AC") proto = PANASONIC_AC;
-    else if (pcek == "PIONEER") proto = PIONEER;
-    else if (pcek == "LG2") proto = LG2;
-    else if (pcek == "MWM") proto = MWM;
-    else if (pcek == "DAIKIN2") proto = DAIKIN2;
-    else if (pcek == "VESTEL_AC") proto = VESTEL_AC;
-    else if (pcek == "TECO") proto = TECO;
-    else if (pcek == "SAMSUNG36") proto = SAMSUNG36;
-    else if (pcek == "TCL112AC") proto = TCL112AC;
-    else if (pcek == "LEGOPF") proto = LEGOPF;
-    else if (pcek == "MITSUBISHI_HEAVY_88") proto = MITSUBISHI_HEAVY_88;
-    else if (pcek == "MITSUBISHI_HEAVY_152") proto = MITSUBISHI_HEAVY_152;
-    else if (pcek == "DAIKIN216") proto = DAIKIN216;
-    else if (pcek == "SHARP_AC") proto = SHARP_AC;
-    else if (pcek == "GOODWEATHER") proto = GOODWEATHER;
-    else if (pcek == "INAX") proto = INAX;
-    else if (pcek == "DAIKIN160") proto = DAIKIN160;
-    else if (pcek == "NEOCLIMA") proto = NEOCLIMA;
-    else if (pcek == "DAIKIN176") proto = DAIKIN176;
-    else if (pcek == "DAIKIN128") proto = DAIKIN128;
-    else if (pcek == "AMCOR") proto = AMCOR;
-    else if (pcek == "DAIKIN152") proto = DAIKIN152;
-    else if (pcek == "MITSUBISHI136") proto = MITSUBISHI136;
-    else if (pcek == "MITSUBISHI112") proto = MITSUBISHI112;
-    else if (pcek == "HITACHI_AC424") proto = HITACHI_AC424;
-    else if (pcek == "SONY_38K") proto = SONY_38K;
-    else if (pcek == "EPSON") proto = EPSON;
-    else if (pcek == "SYMPHONY") proto = SYMPHONY;
-    else if (pcek == "HITACHI_AC3") proto = HITACHI_AC3;
-    else if (pcek == "DAIKIN64") proto = DAIKIN64;
-    else if (pcek == "AIRWELL") proto = AIRWELL;
-    else if (pcek == "DELONGHI_AC") proto = DELONGHI_AC;
-    else if (pcek == "DOSHISHA") proto = DOSHISHA;
-    else if (pcek == "MULTIBRACKETS") proto = MULTIBRACKETS;
-    else if (pcek == "CARRIER_AC40") proto = CARRIER_AC40;
-    else if (pcek == "CARRIER_AC64") proto = CARRIER_AC64;
-    else if (pcek == "HITACHI_AC344") proto = HITACHI_AC344;
-    else if (pcek == "CORONA_AC") proto = CORONA_AC;
-    else if (pcek == "MIDEA24") proto = MIDEA24;
-    else if (pcek == "ZEPEAL") proto = ZEPEAL;
-    else if (pcek == "SANYO_AC") proto = SANYO_AC;
-    else if (pcek == "VOLTAS") proto = VOLTAS;
-    else if (pcek == "METZ") proto = METZ;
-    else if (pcek == "TRANSCOLD") proto = TRANSCOLD;
-    else if (pcek == "TECHNIBEL_AC") proto = TECHNIBEL_AC;
-    else if (pcek == "MIRAGE") proto = MIRAGE;
-    else if (pcek == "ELITESCREENS") proto = ELITESCREENS;
-    else if (pcek == "PANASONIC_AC32") proto = PANASONIC_AC32;
-    else if (pcek == "MILESTAG2") proto = MILESTAG2;
-    else if (pcek == "ECOCLIM") proto = ECOCLIM;
-    else if (pcek == "XMP") proto = XMP;
-    else if (pcek == "TRUMA") proto = TRUMA;
-    else if (pcek == "HAIER_AC176") proto = HAIER_AC176;
-    else if (pcek == "TEKNOPOINT") proto = TEKNOPOINT;
-    else if (pcek == "KELON") proto = KELON;
-    else if (pcek == "TROTEC_3550") proto = TROTEC_3550;
-    else if (pcek == "SANYO_AC88") proto = SANYO_AC88;
-    else if (pcek == "BOSE") proto = BOSE;
-    else if (pcek == "ARRIS") proto = ARRIS;
-    else if (pcek == "RHOSS") proto = RHOSS;
-    else if (pcek == "AIRTON") proto = AIRTON;
-    else if (pcek == "COOLIX48") proto = COOLIX48;
-    else if (pcek == "HITACHI_AC264") proto = HITACHI_AC264;
-    else if (pcek == "KELON168") proto = KELON168;
-    else if (pcek == "HITACHI_AC296") proto = HITACHI_AC296;
-    else if (pcek == "DAIKIN200") proto = DAIKIN200;
-    else if (pcek == "HAIER_AC160") proto = HAIER_AC160;
-    else if (pcek == "CARRIER_AC128") proto = CARRIER_AC128;
-    else if (pcek == "TOTO") proto = TOTO;
-    else if (pcek == "CLIMABUTLER") proto = CLIMABUTLER;
-    else if (pcek == "TCL96AC") proto = TCL96AC;
-    else if (pcek == "BOSCH144") proto = BOSCH144;
-    else if (pcek == "SANYO_AC152") proto = SANYO_AC152;
-    else if (pcek == "DAIKIN312") proto = DAIKIN312;
-    else if (pcek == "GORENJE") proto = GORENJE;
-    else if (pcek == "WOWWEE") proto = WOWWEE;
-    else if (pcek == "CARRIER_AC84") proto = CARRIER_AC84;
-    else if (pcek == "YORK") proto = YORK;
-    else proto = UNUSED;
-    irsend.send(proto,(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);    
+    if (jbit != "AC") irsend.send(protocol(proto),(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    //When got topic ended with "/AC"
+    else {
+      DynamicJsonDocument jmqttdata(1024);
+      deserializeJson(jmqttdata, message);
+    // irac.sendAc(const decode_type_t vendor, const int16_t model, const bool power, const stdAc::opmode_t mode, const float degrees, const bool celsius, const stdAc::fanspeed_t fan, const stdAc::swingv_t swingv, const stdAc::swingh_t swingh, const bool quiet, const bool turbo, const bool econo, const bool light, const bool filter, const bool clean, const bool beep, const int16_t sleep=-1, const int16_t clock=-1);
+      irac.sendAc(protocol(proto), irac.strToModel(jmqttdata["Model"]), jmqttdata["Power"], irac.strToOpmode(jmqttdata["Mode"]), jmqttdata["Temperature"], 1, irac.strToFanspeed(jmqttdata["Fan"]), irac.strToSwingV(jmqttdata["SwingV"]), irac.strToSwingH("kAuto"), jmqttdata["Quiet"], jmqttdata["Turbo"], jmqttdata["Eco"], jmqttdata["Light"], 0, 0, jmqttdata["Beep"], -1, -1);
+    }
   }
   if (String(topic) == (MQTT_Sub_Topic + "/set/ir-receiver/state") && message == "1") irrecst = true;
   else if (String(topic) == (MQTT_Sub_Topic + "/set/ir-receiver/state") && message == "0") irrecst = false;
+}
+
+decode_type_t protocol(String pcek) {
+    if (pcek == "UNKNOWN") return UNKNOWN;
+    else if (pcek == "RC5") return RC5;
+    else if (pcek == "RC6") return RC6;
+    else if (pcek == "NEC") return NEC;
+    else if (pcek == "SONY") return SONY;
+    else if (pcek == "PANASONIC") return PANASONIC;
+    else if (pcek == "JVC") return JVC;
+    else if (pcek == "SAMSUNG") return SAMSUNG;
+    else if (pcek == "WHYNTER") return WHYNTER;
+    else if (pcek == "AIWA_RC_T501") return AIWA_RC_T501;
+    else if (pcek == "LG") return LG;
+    else if (pcek == "SANYO") return SANYO;
+    else if (pcek == "MITSUBISHI") return MITSUBISHI;
+    else if (pcek == "DISH") return DISH;
+    else if (pcek == "SHARP") return SHARP;
+    else if (pcek == "COOLIX") return COOLIX;
+    else if (pcek == "DAIKIN") return DAIKIN;
+    else if (pcek == "DENON") return DENON;
+    else if (pcek == "KELVINATOR") return KELVINATOR;
+    else if (pcek == "SHERWOOD") return SHERWOOD;
+    else if (pcek == "MITSUBISHI_AC") return MITSUBISHI_AC;
+    else if (pcek == "RCMM") return RCMM;
+    else if (pcek == "SANYO_LC7461") return SANYO_LC7461;
+    else if (pcek == "RC5X") return RC5X;
+    else if (pcek == "GREE") return GREE;
+    else if (pcek == "PRONTO") return PRONTO;
+    else if (pcek == "NEC_LIKE") return NEC_LIKE;
+    else if (pcek == "ARGO") return ARGO;
+    else if (pcek == "TROTEC") return TROTEC;
+    else if (pcek == "NIKAI") return NIKAI;
+    else if (pcek == "RAW") return RAW;
+    else if (pcek == "GLOBALCACHE") return GLOBALCACHE;
+    else if (pcek == "TOSHIBA_AC") return TOSHIBA_AC;
+    else if (pcek == "FUJITSU_AC") return FUJITSU_AC;
+    else if (pcek == "MIDEA") return MIDEA;
+    else if (pcek == "MAGIQUEST") return MAGIQUEST;
+    else if (pcek == "LASERTAG") return LASERTAG;
+    else if (pcek == "CARRIER_AC") return CARRIER_AC;
+    else if (pcek == "HAIER_AC") return HAIER_AC;
+    else if (pcek == "MITSUBISHI2") return MITSUBISHI2;
+    else if (pcek == "HITACHI_AC") return HITACHI_AC;
+    else if (pcek == "HITACHI_AC1") return HITACHI_AC1;
+    else if (pcek == "HITACHI_AC2") return HITACHI_AC2;
+    else if (pcek == "GICABLE") return GICABLE;
+    else if (pcek == "HAIER_AC_YRW02") return HAIER_AC_YRW02;
+    else if (pcek == "WHIRLPOOL_AC") return WHIRLPOOL_AC;
+    else if (pcek == "SAMSUNG_AC") return SAMSUNG_AC;
+    else if (pcek == "LUTRON") return LUTRON;
+    else if (pcek == "ELECTRA_AC") return ELECTRA_AC;
+    else if (pcek == "PANASONIC_AC") return PANASONIC_AC;
+    else if (pcek == "PIONEER") return PIONEER;
+    else if (pcek == "LG2") return LG2;
+    else if (pcek == "MWM") return MWM;
+    else if (pcek == "DAIKIN2") return DAIKIN2;
+    else if (pcek == "VESTEL_AC") return VESTEL_AC;
+    else if (pcek == "TECO") return TECO;
+    else if (pcek == "SAMSUNG36") return SAMSUNG36;
+    else if (pcek == "TCL112AC") return TCL112AC;
+    else if (pcek == "LEGOPF") return LEGOPF;
+    else if (pcek == "MITSUBISHI_HEAVY_88") return MITSUBISHI_HEAVY_88;
+    else if (pcek == "MITSUBISHI_HEAVY_152") return MITSUBISHI_HEAVY_152;
+    else if (pcek == "DAIKIN216") return DAIKIN216;
+    else if (pcek == "SHARP_AC") return SHARP_AC;
+    else if (pcek == "GOODWEATHER") return GOODWEATHER;
+    else if (pcek == "INAX") return INAX;
+    else if (pcek == "DAIKIN160") return DAIKIN160;
+    else if (pcek == "NEOCLIMA") return NEOCLIMA;
+    else if (pcek == "DAIKIN176") return DAIKIN176;
+    else if (pcek == "DAIKIN128") return DAIKIN128;
+    else if (pcek == "AMCOR") return AMCOR;
+    else if (pcek == "DAIKIN152") return DAIKIN152;
+    else if (pcek == "MITSUBISHI136") return MITSUBISHI136;
+    else if (pcek == "MITSUBISHI112") return MITSUBISHI112;
+    else if (pcek == "HITACHI_AC424") return HITACHI_AC424;
+    else if (pcek == "SONY_38K") return SONY_38K;
+    else if (pcek == "EPSON") return EPSON;
+    else if (pcek == "SYMPHONY") return SYMPHONY;
+    else if (pcek == "HITACHI_AC3") return HITACHI_AC3;
+    else if (pcek == "DAIKIN64") return DAIKIN64;
+    else if (pcek == "AIRWELL") return AIRWELL;
+    else if (pcek == "DELONGHI_AC") return DELONGHI_AC;
+    else if (pcek == "DOSHISHA") return DOSHISHA;
+    else if (pcek == "MULTIBRACKETS") return MULTIBRACKETS;
+    else if (pcek == "CARRIER_AC40") return CARRIER_AC40;
+    else if (pcek == "CARRIER_AC64") return CARRIER_AC64;
+    else if (pcek == "HITACHI_AC344") return HITACHI_AC344;
+    else if (pcek == "CORONA_AC") return CORONA_AC;
+    else if (pcek == "MIDEA24") return MIDEA24;
+    else if (pcek == "ZEPEAL") return ZEPEAL;
+    else if (pcek == "SANYO_AC") return SANYO_AC;
+    else if (pcek == "VOLTAS") return VOLTAS;
+    else if (pcek == "METZ") return METZ;
+    else if (pcek == "TRANSCOLD") return TRANSCOLD;
+    else if (pcek == "TECHNIBEL_AC") return TECHNIBEL_AC;
+    else if (pcek == "MIRAGE") return MIRAGE;
+    else if (pcek == "ELITESCREENS") return ELITESCREENS;
+    else if (pcek == "PANASONIC_AC32") return PANASONIC_AC32;
+    else if (pcek == "MILESTAG2") return MILESTAG2;
+    else if (pcek == "ECOCLIM") return ECOCLIM;
+    else if (pcek == "XMP") return XMP;
+    else if (pcek == "TRUMA") return TRUMA;
+    else if (pcek == "HAIER_AC176") return HAIER_AC176;
+    else if (pcek == "TEKNOPOINT") return TEKNOPOINT;
+    else if (pcek == "KELON") return KELON;
+    else if (pcek == "TROTEC_3550") return TROTEC_3550;
+    else if (pcek == "SANYO_AC88") return SANYO_AC88;
+    else if (pcek == "BOSE") return BOSE;
+    else if (pcek == "ARRIS") return ARRIS;
+    else if (pcek == "RHOSS") return RHOSS;
+    else if (pcek == "AIRTON") return AIRTON;
+    else if (pcek == "COOLIX48") return COOLIX48;
+    else if (pcek == "HITACHI_AC264") return HITACHI_AC264;
+    else if (pcek == "KELON168") return KELON168;
+    else if (pcek == "HITACHI_AC296") return HITACHI_AC296;
+    else if (pcek == "DAIKIN200") return DAIKIN200;
+    else if (pcek == "HAIER_AC160") return HAIER_AC160;
+    else if (pcek == "CARRIER_AC128") return CARRIER_AC128;
+    else if (pcek == "TOTO") return TOTO;
+    else if (pcek == "CLIMABUTLER") return CLIMABUTLER;
+    else if (pcek == "TCL96AC") return TCL96AC;
+    else if (pcek == "BOSCH144") return BOSCH144;
+    else if (pcek == "SANYO_AC152") return SANYO_AC152;
+    else if (pcek == "DAIKIN312") return DAIKIN312;
+    else if (pcek == "GORENJE") return GORENJE;
+    else if (pcek == "WOWWEE") return WOWWEE;
+    else if (pcek == "CARRIER_AC84") return CARRIER_AC84;
+    else if (pcek == "YORK") return YORK;
+    else return UNUSED;
 }
 
 void PublishACState() {
@@ -1383,3 +1422,4 @@ void PublishACState() {
   else if (ac.getSwingVerticalPosition() == 11) mqtt->publish((String(MQTT_Status_Topic)+"/ac/swing").c_str(), "Up Auto");
   Serial.println(F("AC State Updated"));
 }
+
