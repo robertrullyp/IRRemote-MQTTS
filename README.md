@@ -9,7 +9,7 @@ Update buat set ac pake urutan data dengan format json, buat set AC lewat komuni
 
     {"Protocol":"GREE","Model":"YAW1F","Power":1,"Mode":"kCool","Temperature":24,"Fan":"kAuto","SwingV":"kAuto","Quiet":0,"Turbo":0,"Eco":0,"Light":1,"Beep":1}
 
-untuk set melalui mqtt kirim topic ke [usermqtt]/[UID][ChipID]/set/universal/[protokol]/[bit] misalnya: robert/NodeMCU-v3-fd8575/set/universal/GREE/64 format data jsonnya misalnya gini :
+untuk set melalui mqtt kirim topic ke [usermqtt]/[UID][ChipID]/set/universal/[protokol]/[bit] misalnya: robert/NodeMCU-v3-fd8575/set/universal/GREE/AC format data jsonnya misalnya gini :
 
     {
         "Model":"YAW1F",
