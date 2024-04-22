@@ -4,6 +4,34 @@ Memungkinkan untuk melakukan pengendalian dan otomatisasi untuk perangkat yang b
 
 Sketch Arduino cek di sini [ArduinoESP Smart IR Remote MQTT](https://github.com/robertrullyp/IRRemote-MQTTS/blob/main/src/IRRemote-MQTTS.ino)
 
+## New Updates
+Update buat set ac pake urutan data dengan format json, buat set AC lewat komuniasi serial misalnya formatnya gini
+
+    {"Protocol":"GREE","Model":"YAW1F","Power":1,"Mode":"kCool","Temperature":24,"Fan":"kAuto","SwingV":"kAuto","Quiet":0,"Turbo":0,"Eco":0,"Light":1,"Beep":1}
+
+untuk set melalui mqtt kirim topic ke [usermqtt]/[UID][ChipID]/set/universal/[protokol]/[bit] misalnya: robert/NodeMCU-v3-fd8575/set/universal/GREE/64 format data jsonnya misalnya gini :
+
+    {
+        "Model":"YAW1F",
+        "Power":1,
+        "Mode":"kCool",
+        "Temperature":24,
+        "Fan":"kAuto",
+        "SwingV":"kAuto",
+        "Quiet":0,
+        "Turbo":0,
+        "Eco":0,
+        "Light":1,
+        "Beep":1
+    }
+
+Untuk model ada apa aja yang didukung di [List Protokol](https://github.com/crankyoldgit/IRremoteESP8266/blob/master/SupportedProtocols.md). Untuk mode, fan, swing, dsb cek di enum librarynya atau sumber bacaanya ada [disini referensinya](https://crankyoldgit.github.io/IRremoteESP8266/doxygen/html/namespacestdAc.html#a8bb0dbf18fe69f639f4ac0b3ff133383)
+Untuk nentuin prioritas server mqtt juga udah bisa dimasukin langsung di webconfig, bisa dipilih lebih prefer ke server lokal dulu nyoba konek atau ke server iot dulu. Buat opsi use ssl/tls masih dikembangin, sementara buat nentuin koneksi mau pake ssl atau non ssl lewat sketch arduino dulu.. kalau pake ssl uncomment aja, kalau mau pake koneksi non-ssl jadiin comment, code di sketchnya yang ini : 
+
+    #define USE_SSL
+
+
+
 ## Supported MCU
 1.Board berbasis ESP8266
 
