@@ -6,12 +6,15 @@ Sketch Arduino cek di sini [ArduinoESP Smart IR Remote MQTT](https://github.com/
 
 ## New Updates
 Untuk ESP32 jika koneksi menggunakan SSL/TLS, masukin certificate for formatnya setiap baris baru (new line) diganti dengan \n misalnya isi file certifikat gini :
+
     -----BEGIN CERTIFICATE-----
     MIIH0zCCBbugAwIBAgIIXsO3pkN/pOAwDQYJKoZIhvcNAQEFBQAwQjESMBAGA1UE
     CQYDVQQGEwJFUzAeFw0xMTA1MDUwOTM3MzdaFw0zMDEyMzEwOTM3MzdaMEIxEjAQ
     pPVWQxaZLPSkVrQ0uGE3ycJYgBugl6H8WY3pEfbRD0tVNEYqi4Y7
     -----END CERTIFICATE-----
+
 Untuk masukin certificatenya di webconfig cp cukup tulis gini :
+
     -----BEGIN CERTIFICATE-----\nMIIH0zCCBbugAwIBAgIIXsO3pkN/pOAwDQYJKoZIhvcNAQEFBQAwQjESMBAGA1UE\nCQYDVQQGEwJFUzAeFw0xMTA1MDUwOTM3MzdaFw0zMDEyMzEwOTM3MzdaMEIxEjAQ\npPVWQxaZLPSkVrQ0uGE3ycJYgBugl6H8WY3pEfbRD0tVNEYqi4Y7\n-----END CERTIFICATE-----\n
 
 Fitur OTA buat ESP8266 dibuang karna bermasalah sama memory, terkadang bikin perangkat restart dengan kode exception. Jadi sementara OTA Update ada buat ESP32 aja.
