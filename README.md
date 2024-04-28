@@ -6,13 +6,12 @@ Sketch Arduino cek di sini [ArduinoESP Smart IR Remote MQTT](https://github.com/
 
 ## New Updates
 Fitur OTA buat ESP8266 dibuang karna bermasalah sama memory, terkadang bikin perangkat restart dengan kode exception. Jadi sementara OTA Update ada buat ESP32 aja.
-Update buat set ac pake urutan data dengan format json, buat set AC lewat komuniasi serial misalnya formatnya gini :
-dan akan ngirim balik keterangan parameter sesuai ketentuan bahkan jika gagal buat baca parameter yg dikirim akan tampil di serial monitor
+Update untuk set ac pake urutan data dengan format json lewat komuniasi serial, contoh formatnya gini :
 
     {"Protocol":"GREE","Model":"YB1FA","Power":1,"Mode":"fan","Temperature":25,"Celsius":1,"Fan":"max","SwingV":"highest","SwingH":"Auto","Quiet":false,"Turbo":false,"Eco":false,"Light":true,"Filter":true,"Clean":false,"Beep":true,"Sleep":-1,"Clock":-1}
+dan akan ngirim balik keterangan parameter sesuai ketentuan bahkan jika gagal buat baca parameter yg dikirim akan tampil di serial monitor.
 
-untuk set melalui mqtt kirim topic ke [usermqtt]/[UID][ChipID]/set/ac misalnya: robert/NodeMCU-v3-fd8575/set/ac format data jsonnya misalnya gini :
-status(state) topicnya dengan format json yg sama ada di [usermqtt]/[UID][ChipID]/state/ac misalnya: robert/NodeMCU-v3-fd8575/state/ac
+Untuk set melalui mqtt kirim topic ke [usermqtt]/[UID][ChipID]/set/ac misalnya: robert/NodeMCU-v3-fd8575/set/ac format data jsonnya misalnya gini :
 
     {
         "Protocol":"GREE",
@@ -34,19 +33,18 @@ status(state) topicnya dengan format json yg sama ada di [usermqtt]/[UID][ChipID
         "Sleep": -1,
         "Clock": -1
     }
+Status(state) topicnya dengan format json yg sama ada di [usermqtt]/[UID][ChipID]/state/ac misalnya: robert/NodeMCU-v3-fd8575/state/ac
 
-
-perlu dipastiin juga MQTT_MAX_PACKET_SIZE di library PubSubClient sesuai karna default 256 byte (edit file PubSubClient.h) biar bisa jalan lancar buat kirim terima data dengan json format seperti diatas, berdasarkan hasil kalkulator online ukurannya sekitar 360 byte, biar aman edit PubSubClient.h cari MQTT_MAX_PACKET_SIZE rubah jadi gini aja :
+Perlu dipastiin juga MQTT_MAX_PACKET_SIZE di library PubSubClient sesuai karna default 256 byte (edit file PubSubClient.h) biar bisa jalan lancar buat kirim terima data dengan json format seperti diatas, berdasarkan hasil kalkulator online ukurannya sekitar 360 byte, biar aman edit PubSubClient.h cari MQTT_MAX_PACKET_SIZE rubah jadi gini aja :
     
     #define MQTT_MAX_PACKET_SIZE 512
 
-
 untuk set melalui topic mqtt dengan masing-masing parameter punya topic sendiri-sendiri struktur topicnya gini :
-[usermqtt]/[UID][ChipID]/set/universal/[ModelRemoteAC]/[PROTOKOL]/[ParameterAC] misalnya robert/NodeMCU-v3-fd8575/set/universal/yb1fa/gree/power
-cek di bagian demo buat lebih lanjutnya integrasi di home assistant..!
 
 ![Capture](https://github.com/robertrullyp/IRRemote-MQTTS/assets/12167355/c4607ee6-ba7c-4468-8402-ae780a543336)
 
+[usermqtt]/[UID][ChipID]/set/universal/[ModelRemoteAC]/[PROTOKOL]/[ParameterAC] misalnya robert/NodeMCU-v3-fd8575/set/universal/yb1fa/gree/power
+cek di bagian demo buat lebih lanjutnya integrasi di home assistant..!
 
 Topic di [usermqtt]/[UID][ChipID]/state/ir-receiver/hexcode berisi code dari pembacaan ir receiver perangkat, kalau pake home assistan atau dashboard lain yang mendukung, ini juga bisa dimanfaatkan buat trigger automation misalnya dengan remot tv bisa buat nyalain lampu, dsb.. coba oprek aja di dashboard kalian hehe 
 
@@ -189,6 +187,10 @@ Buat nambahin perangkat MQTT HVAC di Home Assistant pake device ini, configurati
           current_humidity_template : "{{ value }}"
 
 Contoh diatas pake parameter dengan masing-masing topic berisi satu raw data untuk satu parameter, kalau mau pake format json tinggal sesuaikan aja topic nya sesuai struktur topic yang udah dijelasin sebelumnya di awal, lalu sesuaikan template buat kirim dan terima data.
+
+![photo_2024-04-29_02-06-15](https://github.com/robertrullyp/IRRemote-MQTTS/assets/12167355/51c41cb8-fcf4-41f1-a585-9e4a4037b817)
+
+![photo_2024-04-29_02-07-51](https://github.com/robertrullyp/IRRemote-MQTTS/assets/12167355/978de153-3a56-4625-8522-3db6fb481595)
 
 ![photo_2023-05-05_16-09-44](https://github.com/robertrullyp/IRRemote-MQTTS/assets/12167355/ba63651d-536f-444e-b8f3-36488e225426)
 
