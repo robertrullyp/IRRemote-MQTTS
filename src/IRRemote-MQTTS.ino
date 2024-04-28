@@ -23,19 +23,23 @@
 #include <IRrecv.h>
 #include <IRutils.h>
 #include <WiFiUdp.h>
+#ifdef ESP32
 #include <ArduinoOTA.h>
+#endif
 #include <PubSubClient.h>
 #include <Wire.h>
 #include <AHTxx.h>
 // #include <OneButton.h>          // for button
 #include <FS.h>
 #include <ArduinoJson.h>        // Now support ArduinoJson 6.0.0+ ( tested with v6.15.2 to v6.16.1 ) // get it from https://arduinojson.org/ or install via Arduino library manager
+#ifdef USE_SSL
+  #include <WiFiClientSecure.h>
+#endif
 //For ESP32, To use ESP32 Dev Module, QIO, Flash 4MB/80MHz, Upload 921600
 //Ported to ESP32
 #ifdef ESP32
 #include <esp_wifi.h>
 #include <WiFi.h>
-#include <WiFiClientSecure.h>
 #include <WiFiMulti.h>          // From v1.1.0
 WiFiMulti wifiMulti;
 #if ( defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 2) ) // LittleFS has higher priority than SPIFFS
@@ -153,7 +157,6 @@ const char* CONFIG_FILE = "/ConfigMQTT.json";
 #define SERVER              "iotsmarthome.my.id"
 #define SERVER_LOCAL        "192.168.1.93"
 #define SERVERPORT          "1883"   // Default Port NON-TLS
-#define USE_SSL_TLS         "1"
 #define SERVERPRIO          "1"
 #define USERNAME            "usertest"
 #define KEY                 "usertest"
@@ -162,7 +165,6 @@ const char* CONFIG_FILE = "/ConfigMQTT.json";
 #define SERVER_Label             "SERVER_Label"
 #define SERVER_LOCAL_Label       "SERVER_LOCAL_Label"
 #define SERVERPORT_Label         "SERVERPORT_Label"
-#define USE_SSL_TLS_Label        "USE_SSL_TLS_Label"
 #define SERVERPRIO_Label         "SERVERPRIO_Label"
 #define USERNAME_Label           "USERNAME_Label"
 #define KEY_Label                "KEY_Label"
@@ -173,20 +175,27 @@ String MQTT_Status_Topic    = "private/status";
 String MQTT_Sub_Topic       = "private/set";
 // Variables to save custom parameters to...
 // I would like to use these instead of #defines
-#define custom_SERVER_LEN             20
+#define custom_SERVER_LEN             30
 #define custom_SERVER_LOCAL_LEN       20
 #define custom_PORT_LEN               5
 #define custom_USERNAME_LEN           20
 #define custom_KEY_LEN                40
-#define custom_FINGERPRINT_LEN        62
+#ifdef USE_SSL
+#ifdef ESP32
+  #define custom_FINGERPRINT_LEN        2200
+#else
+  #define custom_FINGERPRINT_LEN        64
+#endif
+#endif
 char custom_SERVER[custom_SERVER_LEN];
 char custom_SERVER_LOCAL[custom_SERVER_LOCAL_LEN];
 char custom_SERVERPORT[custom_PORT_LEN];
-bool custom_USE_SSL_TLS;             //false: Non-SSL/TLS, true: SSL/TLS
 bool custom_SERVERPRIO;              //false: prioritas server lokal, true: prioritas server inet
 char custom_USERNAME[custom_USERNAME_LEN];
 char custom_KEY[custom_KEY_LEN];
+#ifdef USE_SSL
 char custom_FINGERPRINT[custom_FINGERPRINT_LEN];
+#endif
 bool servernet;
 // Function Prototypes
 void MQTT_connect();
@@ -298,9 +307,9 @@ int mqttfailcount = 0;
 
 // Create an ESP32 WiFiClient class to connect to the MQTT server
 #ifdef USE_SSL
-WiFiClientSecure *client     = NULL;  //TLS
+WiFiClientSecure *client     = NULL;  // SSL/TLS
 #else
-WiFiClient *client           = NULL;  //NON-TLS
+WiFiClient *client           = NULL;  // NON-SSL/TLS
 #endif
 PubSubClient   *mqtt         = NULL;
 String ClientNID = UID + String(ESP_getChipId(), HEX);
@@ -324,12 +333,13 @@ const uint8_t kTimeout = 15;
 const uint16_t kMinUnknownSize = 12;
 const uint8_t kTolerancePercentage = kTolerance;  // kTolerance is normally 25%
 #define LEGACY_TIMING_INFO false
-IRGreeAC ac(kIrLed);  // Set the GPIO to be used for sending AC messages.
+// IRGreeAC ac(kIrLed);  // Set the GPIO to be used for sending AC messages.
 IRac irac(kIrLed);  // Set the GPIO to be used for sending AC messages.
 IRsend irsend(kIrLed);  // Set the GPIO to be used to sending the message.
 IRrecv irrecv(kRecvPin, kCaptureBufferSize, kTimeout, true);
 decode_results results;
 AHTxx aht10(AHTXX_ADDRESS_X38, AHT1x_SENSOR); //sensor address, sensor type
+stdAc::state_t  ACParam;
 String serin = "";
 
 WiFi_AP_IPConfig  WM_AP_IPconfig;
@@ -492,12 +502,17 @@ void publishMQTT() {
     Serial.print(F("F"));        // F means publishing failure
     mqttfailcount = mqttfailcount+1 ;
   }
-  if (mqttfailcount >= 10) 
+  if (mqttfailcount >= 3) {
+    servernet = !servernet;
+    deleteOldInstances();
+    createNewInstances();
+    if (mqttfailcount >= 10) 
 #if ESP8266
     ESP.reset();
 #else
     ESP.restart();
 #endif
+  }
   Serial.print(F("  "));
   Serial.print(mqttfailcount);
   Serial.print(F("  "));
@@ -544,6 +559,7 @@ void check_status() {
     mqtt_publish_timeout = current_millis + PUBLISH_INTERVAL;
   }
 }
+
 int calcChecksum(uint8_t* address, uint16_t sizeToCalc) {
   uint16_t checkSum = 0;
   for (uint16_t index = 0; index < sizeToCalc; index++) {
@@ -593,21 +609,40 @@ void saveConfigData() {
 }
 
 void deleteOldInstances() {  // Delete previous instances
+  if (client) {
+    delete client;
+    client = NULL;
+    Serial.println(F("Deleting old WiFi object"));
+  }
   if (mqtt) {
     delete mqtt;
     mqtt = NULL;
     Serial.println(F("Deleting old MQTT object"));
-  }
+  }  
 }
+
+// write this format on fingerprint/root ca param (add "\n" for every line in root ca cert, make sure there is no space!) ex : 
+// -----BEGIN CERTIFICATE-----\nMIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw\n…......................................emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=\n-----END CERTIFICATE-----\n
+#ifdef ESP32
+void replacenewline(char* str) {
+    char* p = str;
+    while ((p = strstr(p, "\\n")) != NULL) {
+        *p++ = '\n';
+        memmove(p, p + 1, strlen(p));
+    }
+} // menyesuaikan format root ca dari param wm cp
+#endif
 
 void createNewInstances() {
   if (!client) {
 #ifdef USE_SSL
-    client = new WiFiClientSecure(); //TLS
+    client = new WiFiClientSecure(); // SSL/TLS
 #ifdef ESP32
-    client->setInsecure();
+    replacenewline(custom_FINGERPRINT);
+    if (servernet == false) client->setInsecure();
+    else client->setCACert(custom_FINGERPRINT);
 #else
-    client->setFingerprint(custom_FINGERPRINT); //TLS Required
+    client->setFingerprint(custom_FINGERPRINT); // SSL/TLS Required
 #endif
 #else
     client = new WiFiClient;  //NON-TLS
@@ -617,27 +652,33 @@ void createNewInstances() {
   }
   if (!mqtt) {  // Create new instances from new data
     //Setup the MQTT client class by passing in the WiFi client and MQTT server and login details.
+    MQTT_Sub_Topic = String(custom_USERNAME) + "/" + ClientNID;
+    mqtt = new PubSubClient(*client);
+    mqtt->setCallback(callback);
     if (servernet == false) {
-      mqtt = new PubSubClient(custom_SERVER_LOCAL,atoi(custom_SERVERPORT),callback,*client);
-      Serial.println("PAKE SERVER LOCAL");
+      // mqtt = new PubSubClient(custom_SERVER_LOCAL,atoi(custom_SERVERPORT),callback,*client);
+      mqtt->setServer(custom_SERVER_LOCAL, atoi(custom_SERVERPORT));
+      Serial.println(F("PAKE SERVER LOCAL"));
       }
     else { 
-      mqtt = new PubSubClient(custom_SERVER,atoi(custom_SERVERPORT),callback,*client);
-      Serial.println("PAKE SERVER IOT");
+      // mqtt = new PubSubClient(custom_SERVER,atoi(custom_SERVERPORT),callback,*client);
+      mqtt->setServer(custom_SERVER, atoi(custom_SERVERPORT));
+      Serial.println(F("PAKE SERVER IOT"));
     }
-    mqtt->connect(ClientNID.c_str(),custom_USERNAME, custom_KEY);
-    MQTT_Sub_Topic = String(custom_USERNAME) + "/" + ClientNID;
-    mqtt->subscribe((MQTT_Sub_Topic + "/set/#").c_str());
-
+    if (mqtt->connect(ClientNID.c_str(),custom_USERNAME, custom_KEY)) mqtt->subscribe((MQTT_Sub_Topic + "/set/#").c_str());
+    else Serial.println(F("MQTT Failed to Connect!"));
     Serial.print(F("Creating new MQTT object : "));
     if (mqtt) {
       Serial.println(F("OK"));
       Serial.println(String("SERVER = ")    + custom_SERVER    + ", SERVER LOCAL = "  + custom_SERVER_LOCAL + ", INET PRIORITY = " + custom_SERVERPRIO);
-      Serial.println(String("USERNAME = ")  + custom_USERNAME  + ", KEY = "           + custom_KEY + ", SERVERPORT = " + custom_SERVERPORT + ", USE SSL/TLS = " + custom_USE_SSL_TLS);
+      Serial.println(String("USERNAME = ")  + custom_USERNAME  + ", PASSWORD = "           + custom_KEY + ", SERVERPORT = " + custom_SERVERPORT);
+#ifdef ESP32
+      Serial.println(String("ROOTCACERT = ")  + custom_FINGERPRINT );
+#else
       Serial.println(String("FINGERPRINT = ")  + custom_FINGERPRINT );
+#endif
     }
-    else
-      Serial.println(F("Failed Create MQTT Instance"));
+    else Serial.println(F("Failed Create MQTT Instance"));
   }
 }
 
@@ -669,30 +710,32 @@ void wifi_manager() {
   // After connecting, parameter.getValue() will get you the configured value
   // Format: <ID> <Placeholder text> <default value> <length> <custom HTML> <label placement>
   // (*** we are not using <custom HTML> and <label placement> ***)
-  char chtml[24] = "type=\"checkbox\"";
-  char chtml2[24] = "type=\"checkbox\"";
-  if (custom_USE_SSL_TLS == 1) strcat(chtml, " checked");
+  char chtml[26] = "type=\"checkbox\"";
+  if (custom_SERVERPRIO == 1) strcat(chtml, " checked");
   else strcpy(chtml, "type=\"checkbox\"");
-  if (custom_SERVERPRIO == 1) strcat(chtml2, " checked");
-  else strcpy(chtml2, "type=\"checkbox\"");
   ESP_WMParameter SERVER_FIELD(SERVER_Label, "SERVER", custom_SERVER, custom_SERVER_LEN + 1);  // SERVER
   ESP_WMParameter SERVER_LOCAL_FIELD(SERVER_LOCAL_Label, "SERVER LOCAL", custom_SERVER_LOCAL, custom_SERVER_LOCAL_LEN + 1);  // LOCAL SERVER
   ESP_WMParameter SERVERPORT_FIELD(SERVERPORT_Label, "SERVER PORT", custom_SERVERPORT, custom_PORT_LEN + 1);  // SERVERPORT
-  ESP_WMParameter USE_SSL_TLS_FIELD(USE_SSL_TLS_Label, "USE SSL/TLS (Not Yet Works, USE CODE!)", "Y", 2, chtml, WFM_LABEL_AFTER);  // SSL/TLS
-  ESP_WMParameter SERVERPRIO_FIELD(SERVERPRIO_Label, "INET(IOT) SERVER PRIORITY", "Y", 2, chtml2, WFM_LABEL_AFTER);  // SSL/TLS
+  ESP_WMParameter SERVERPRIO_FIELD(SERVERPRIO_Label, "INET(IOT) PRIORITY", "Y", 2, chtml, WFM_LABEL_AFTER);  // SSL/TLS
   ESP_WMParameter USERNAME_FIELD(USERNAME_Label, "USERNAME", custom_USERNAME, custom_USERNAME_LEN + 1);  // USERNAME
-  ESP_WMParameter KEY_FIELD(KEY_Label, "KEY", custom_KEY, custom_KEY_LEN + 1);  // PASSWORD
+  ESP_WMParameter KEY_FIELD(KEY_Label, "PASSWORD", custom_KEY, custom_KEY_LEN + 1);  // PASSWORD
+#ifdef USE_SSL
+#ifdef ESP32
+  ESP_WMParameter FINGERPRINT_FIELD(FINGERPRINT_Label, "ROOT CA CERT ", custom_FINGERPRINT, custom_FINGERPRINT_LEN + 1);  // FINGERPRINT
+#else
   ESP_WMParameter FINGERPRINT_FIELD(FINGERPRINT_Label, "FINGERPRINT", custom_FINGERPRINT, custom_FINGERPRINT_LEN + 1);  // FINGERPRINT
-
+#endif
+#endif
   // add all parameters here
   ESP_wifiManager.addParameter(&SERVER_FIELD);
   ESP_wifiManager.addParameter(&SERVER_LOCAL_FIELD);
   ESP_wifiManager.addParameter(&SERVERPORT_FIELD);
-  ESP_wifiManager.addParameter(&USE_SSL_TLS_FIELD);
   ESP_wifiManager.addParameter(&SERVERPRIO_FIELD);
   ESP_wifiManager.addParameter(&USERNAME_FIELD);
   ESP_wifiManager.addParameter(&KEY_FIELD);
+#ifdef USE_SSL
   ESP_wifiManager.addParameter(&FINGERPRINT_FIELD);
+#endif
   // order of adding is not important
 
   // Sets timeout in seconds until configuration portal gets turned off.
@@ -801,16 +844,17 @@ void wifi_manager() {
   strcpy(custom_SERVER, SERVER_FIELD.getValue());
   strcpy(custom_SERVER_LOCAL, SERVER_LOCAL_FIELD.getValue());
   strcpy(custom_SERVERPORT, SERVERPORT_FIELD.getValue());
-  custom_USE_SSL_TLS = (strncmp(USE_SSL_TLS_FIELD.getValue(), "Y", 1) == 0);
   custom_SERVERPRIO = (strncmp(SERVERPRIO_FIELD.getValue(), "Y", 1) == 0);
   strcpy(custom_USERNAME, USERNAME_FIELD.getValue());
   strcpy(custom_KEY, KEY_FIELD.getValue());
+#ifdef USE_SSL
   strcpy(custom_FINGERPRINT, FINGERPRINT_FIELD.getValue());
+#endif
   writeConfigFile();  // Writing JSON config file to flash for next boot
   digitalWrite(LED_BUILTIN, LED_OFF); // Turn LED off as we are not in configuration mode.
   deleteOldInstances();
   MQTT_Pub_Topic = String(custom_USERNAME) + "/" + ClientNID ;
-  MQTT_Status_Topic = String(custom_USERNAME) + "/" + ClientNID + "/state";
+  MQTT_Status_Topic = MQTT_Pub_Topic + "/state";
   createNewInstances();
 }
 
@@ -854,9 +898,6 @@ bool readConfigFile() {
     if (json.containsKey(SERVERPORT_Label)) {
       strcpy(custom_SERVERPORT, json[SERVERPORT_Label]);
     }
-    if (json.containsKey(USE_SSL_TLS_Label)) {
-      custom_USE_SSL_TLS = json[USE_SSL_TLS_Label];
-    }
     if (json.containsKey(SERVERPRIO_Label)) {
       custom_SERVERPRIO = json[SERVERPRIO_Label];
     }
@@ -866,9 +907,11 @@ bool readConfigFile() {
     if (json.containsKey(KEY_Label)) {
       strcpy(custom_KEY, json[KEY_Label]);
     }
+#ifdef USE_SSL
     if (json.containsKey(FINGERPRINT_Label)) {
       strcpy(custom_FINGERPRINT, json[FINGERPRINT_Label]);
     }
+#endif
   }
   Serial.println(F("\nConfig File successfully parsed"));
   return true;
@@ -886,12 +929,12 @@ bool writeConfigFile() {
   json[SERVER_Label]            = custom_SERVER;
   json[SERVER_LOCAL_Label]      = custom_SERVER_LOCAL;
   json[SERVERPORT_Label]        = custom_SERVERPORT;
-  json[USE_SSL_TLS_Label]       = custom_USE_SSL_TLS;
   json[SERVERPRIO_Label]        = custom_SERVERPRIO;
   json[USERNAME_Label]          = custom_USERNAME;
   json[KEY_Label]               = custom_KEY;
+#ifdef USE_SSL
   json[FINGERPRINT_Label]       = custom_FINGERPRINT;
-
+#endif
   File f = FileFS.open(CONFIG_FILE, "w");  // Open file for writing
   if (!f) {
     Serial.println(F("Failed to open Config File for writing"));
@@ -920,16 +963,21 @@ void newConfigData() {
   Serial.println(custom_SERVER_LOCAL);
   Serial.print(F("custom_SERVERPORT: "));
   Serial.println(custom_SERVERPORT);
-  Serial.print(F("custom_USE_SSL_TLS: "));
-  Serial.println(custom_USE_SSL_TLS);
   Serial.print(F("custom_SERVERPRIO: "));
   Serial.println(custom_SERVERPRIO);
   Serial.print(F("custom_USERNAME: "));
   Serial.println(custom_USERNAME);
-  Serial.print(F("custom_KEY: "));
+  Serial.print(F("custom_PASSWORD: "));
   Serial.println(custom_KEY);
+#ifdef USE_SSL
+#ifdef ESP32
+  Serial.print(F("custom_ROOTCACERT: "));
+  Serial.println(custom_FINGERPRINT);
+#else
   Serial.print(F("custom_FINGERPRINT: "));
   Serial.println(custom_FINGERPRINT);
+#endif
+#endif
   Serial.println();
 }
 
@@ -944,9 +992,6 @@ void MQTT_connect() {
   }
   Serial.println(F("Connecting to MQTT (2 attempts)..."));
   uint8_t attempt = 2;
-  servernet = !servernet;
-  deleteOldInstances();
-  createNewInstances();
   while ((ret = mqtt->connect(ClientNID.c_str(),custom_USERNAME, custom_KEY)) != 1) {    // connect will return 0 for connected
 //    Serial.println(mqtt->connectErrorString(ret));
     Serial.println(mqtt->state());
@@ -962,16 +1007,16 @@ void MQTT_connect() {
   Serial.println(F("MQTT connection successful!"));
 }
 
-void printState() {
-  Serial.println("GREE A/C remote is in the following state:");  // Display the settings.
-  Serial.printf("  %s\n", ac.toString().c_str());  // Display the encoded IR sequence.
-  unsigned char* ir_code = ac.getRaw();
-  Serial.print("IR Code: 0x");
-  for (uint8_t i = 0; i < kGreeStateLength; i++)
-    Serial.printf("%02X", ir_code[i]);
-  Serial.println();
-  Serial.println();
-}
+// void printState() {
+//   Serial.println(F("GREE A/C remote is in the following state:"));  // Display the settings.
+//   Serial.printf("  %s\n", ac.toString().c_str());  // Display the encoded IR sequence.
+//   unsigned char* ir_code = ac.getRaw();
+//   Serial.print(F("IR Code: 0x"));
+//   for (uint8_t i = 0; i < kGreeStateLength; i++)
+//     Serial.printf("%02X", ir_code[i]);
+//   Serial.println();
+//   Serial.println();
+// }
 
 void setup() {
   // Put your setup code here, to run once
@@ -1072,10 +1117,10 @@ void setup() {
     else if ( WiFi.status() != WL_CONNECTED ) {
       Serial.println(F("ConnectMultiWiFi in setup"));
       connectMultiWiFi();
-      servernet = custom_SERVERPRIO;
     }
   }
   digitalWrite(LED_BUILTIN, LED_OFF); // Turn led off as we are not in configuration mode.
+#ifdef ESP32
 //=================================================================================================================================
   // Port defaults to 8266
   // ArduinoOTA.setPort(8266);
@@ -1099,7 +1144,7 @@ void setup() {
     Serial.println("Start updating " + type);
   });
   ArduinoOTA.onEnd([]() {
-    Serial.println("\nEnd");
+    Serial.println(F("\nEnd"));
   });
   ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
     Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
@@ -1107,18 +1152,20 @@ void setup() {
   ArduinoOTA.onError([](ota_error_t error) {
     Serial.printf("Error[%u]: ", error);
     if (error == OTA_AUTH_ERROR) {
-      Serial.println("Auth Failed");
+      Serial.println(F("Auth Failed"));
     } else if (error == OTA_BEGIN_ERROR) {
-      Serial.println("Begin Failed");
+      Serial.println(F("Begin Failed"));
     } else if (error == OTA_CONNECT_ERROR) {
-      Serial.println("Connect Failed");
+      Serial.println(F("Connect Failed"));
     } else if (error == OTA_RECEIVE_ERROR) {
-      Serial.println("Receive Failed");
+      Serial.println(F("Receive Failed"));
     } else if (error == OTA_END_ERROR) {
-      Serial.println("End Failed");
+      Serial.println(F("End Failed"));
     }
   });
   ArduinoOTA.begin();
+#endif
+//=================================================================================================================================
   Wire.begin();
   aht10.begin();
   irsend.begin();
@@ -1129,18 +1176,17 @@ void setup() {
 #endif  // DECODE_HASH
   irrecv.setTolerance(kTolerancePercentage);  // Override the default tolerance.
   irrecv.enableIRIn();  // Start the receiver  
-  Serial.println("Default state of the remote.");
-  Serial.println("Setting desired state for A/C.");
-  ac.begin();
-  ac.setUseFahrenheit(false); //ac.setUseFahrenheit(false), ac.setUseFahrenheit(true)
-  ac.setDisplayTempSource(0);
-  printState();
+  // Serial.println(F("Default state of the remote."));
+  // Serial.println(F("Setting desired state for A/C."));
+  // ac.begin();
+  // ac.setUseFahrenheit(false); //ac.setUseFahrenheit(false), ac.setUseFahrenheit(true)
+  // ac.setDisplayTempSource(0);
+  // printState();
 #ifdef USE_SSL
-  Serial.println(F("TLS"));
+  Serial.println(F("SSL/TLS"));
 #else
-  Serial.println(F("NON-TLS"));
+  Serial.println(F("NON-SSL/ TLS"));
 #endif
-//=================================================================================================================================
 }
 
 // Loop function
@@ -1149,9 +1195,11 @@ void loop() {
   // so that it can recognise when the timeout expires.
   // You can also call drd.stop() when you wish to no longer
   // consider the next reset as a double reset.
-  if (drd) drd->loop(); 
-  if(mqtt) mqtt->loop();
+#ifdef ESP32
   ArduinoOTA.handle();
+#endif
+  if (drd) drd->loop();
+  if(mqtt) mqtt->loop();
   check_status();  // this is just for checking if we are connected to WiFi  
   if (irrecst && irrecv.decode(&results)) {
     Serial.println();
@@ -1165,97 +1213,230 @@ void loop() {
     if (!mqtt->publish((String(MQTT_Pub_Topic) + "/state/ir-receiver/code").c_str(), String(resultToHumanReadableBasic(&results)).c_str())) {
       Serial.println(F("Failed Sending Code"));
     } else {
+      mqtt->publish((String(MQTT_Pub_Topic) + "/state/ir-receiver/hexcode").c_str(), String(resultToHexidecimal(&results)).c_str());
       Serial.println(F("Code Sent!"));
     }
-    Serial.print("Decimal Code : "); Serial.println(results.value, DEC);
+    Serial.print(F("HEX Code : ")); Serial.println(results.value, HEX);
     Serial.println();
     irrecv.resume();  // Receive the next value
   }
-  if (Serial.available() > 0) {     // Serial Data Format {"Protocol":"GREE","Model":"YAW1F","Power":1,"Mode":"kCool","Temperature":24,"Fan":"kAuto","SwingV":"kAuto","Quiet":0,"Turbo":0,"Eco":0,"Light":1,"Beep":1}
+  if (Serial.available() > 0) {     // Serial Data Format {"Protocol":"GREE","Model":"YB1FA","Power":1,"Mode":"Cool","Temperature":23,"Celsius":1,"Fan":"max","SwingV":"highest","SwingH":"Auto","Quiet":false,"Turbo":false,"Eco":false,"Light":true,"Filter":true,"Clean":false,"Beep":true,"Sleep":-1,"Clock":-1}
     char data = Serial.read();
     serin += data;
     if (data == '\n') {
-      DynamicJsonDocument jdata(1024);
-      deserializeJson(jdata, serin);
-      if (!jdata["Protocol"].isNull()) {
-        irac.sendAc(protocol(jdata["Protocol"]), irac.strToModel(jdata["Model"]), jdata["Power"], irac.strToOpmode(jdata["Mode"]), jdata["Temperature"], 1, irac.strToFanspeed(jdata["Fan"]), irac.strToSwingV(jdata["SwingV"]), irac.strToSwingH("kAuto"), jdata["Quiet"], jdata["Turbo"], jdata["Eco"], jdata["Light"], 0, 0, jdata["Beep"], -1, -1);
-        Serial.println();
-        serializeJsonPretty(jdata,Serial);
-        Serial.println();
+      DynamicJsonDocument jdata(512);
+      DeserializationError error = deserializeJson(jdata, serin);
+      if (error) {
+        Serial.print(F("deserializeJson() failed: "));
+        Serial.println(error.f_str());
+        return;
       }
+      ACParam.protocol = protocol(jdata["Protocol"]);
+      ACParam.model = irac.strToModel(jdata["Model"]);
+      ACParam.power = jdata["Power"];
+      ACParam.mode = irac.strToOpmode(jdata["Mode"]);
+      ACParam.degrees = jdata["Temperature"];
+      ACParam.celsius = jdata["Celsius"];
+      ACParam.fanspeed = irac.strToFanspeed(jdata["Fan"]);
+      ACParam.swingv = irac.strToSwingV(jdata["SwingV"]);
+      ACParam.swingh = irac.strToSwingH(jdata["SwingH"]);
+      ACParam.quiet = jdata["Quiet"];
+      ACParam.turbo = jdata["Turbo"];
+      ACParam.econo = jdata["Eco"];
+      ACParam.light = jdata["Light"];
+      ACParam.filter = jdata["Filter"];
+      ACParam.clean = jdata["Clean"];
+      ACParam.beep = jdata["Beep"];
+      ACParam.sleep = jdata["Sleep"];
+      ACParam.clock = jdata["Clock"];
+      irac.sendAc(ACParam);
       serin="";
+      jdata["Protocol"] = ACParam.protocol;
+      jdata["Model"] = ACParam.model;
+      jdata["Power"] = ACParam.power; 
+      jdata["Mode"] = irac.opmodeToString(ACParam.mode); 
+      jdata["Temperature"] = ACParam.degrees; 
+      jdata["Celsius"] = ACParam.celsius; 
+      jdata["Fan"] = irac.fanspeedToString(ACParam.fanspeed);
+      jdata["SwingV"] = irac.swingvToString(ACParam.swingv);
+      jdata["SwingH"] = irac.swinghToString(ACParam.swingh);
+      jdata["Quiet"] = ACParam.quiet;
+      jdata["Turbo"] = ACParam.turbo; 
+      jdata["Eco"] = ACParam.econo;
+      jdata["Light"] = ACParam.light;
+      jdata["Filter"] = ACParam.filter; 
+      jdata["Clean"] = ACParam.clean; 
+      jdata["Beep"] = ACParam.beep; 
+      jdata["Sleep"] = ACParam.sleep; 
+      jdata["Clock"] = ACParam.clock;
+      Serial.println();
+      Serial.println(F("Setting AC with Parameter : "));
+      serializeJsonPretty(jdata, Serial);
     }
   }
 }
 
-// void     if (jbit != "AC") irsend.send(protocol(proto),(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
-//     // irac.sendAc(const decode_type_t vendor, const int16_t model, const bool power, const stdAc::opmode_t mode, const float degrees, const bool celsius, const stdAc::fanspeed_t fan, const stdAc::swingv_t swingv, const stdAc::swingh_t swingh, const bool quiet, const bool turbo, const bool econo, const bool light, const bool filter, const bool clean, const bool beep, const int16_t sleep=-1, const int16_t clock=-1);
-//     else irac.sendAc(protocol(proto), YAW1F, message.toInt(), irac.strToOpmode("kAuto"), 25, 1, irac.strToFanspeed("kAuto"), irac.strToSwingV("kAuto"), irac.strToSwingH("kAuto"), 0, 0, 0, 1, 0, 0, 1, -1, -1);
-
-
 void callback(char* topic, byte* payload, unsigned int length) {
-  Serial.print("Message received on topic: ");
+  Serial.print(F("Message received on topic: "));
   Serial.println(topic);
   String message = "";
-  for (int i = 0; i < length; i++) {
+  for (unsigned int i = 0; i < length; i++) {
     message += (char)payload[i];
   }
   Serial.println("Message: " + message);
-  if (String(topic) == MQTT_Sub_Topic + "/set/ac/light") ac.setLight(message.toInt());
-  if (String(topic) == MQTT_Sub_Topic + "/set/ac/turbo") ac.setTurbo(message.toInt());
-  if (String(topic) == MQTT_Sub_Topic + "/set/ac/xfan") ac.setXFan(message.toInt());
-  if (String(topic) == MQTT_Sub_Topic + "/set/ac/sleep") ac.setSleep(message.toInt());
-  if (String(topic) == MQTT_Sub_Topic + "/set/ac/temperature") ac.setTemp(message.toInt());
-  if (String(topic) == MQTT_Sub_Topic + "/set/ac/power") ac.setPower(message.toInt());
-  if (String(topic) == MQTT_Sub_Topic + "/set/ac/mode" && message == "off") ac.off();
-  else if (String(topic) == MQTT_Sub_Topic + "/set/ac/mode" && message != "off") {
-    ac.on();
-    if (String(topic) == MQTT_Sub_Topic + "/set/ac/mode" && message == "auto") ac.setMode(0);  //ac.setMode(kGreeAuto);
-    else if (String(topic) == MQTT_Sub_Topic + "/set/ac/mode" && message == "cool") ac.setMode(1);  //ac.setMode(kGreeCool); 
-    else if (String(topic) == MQTT_Sub_Topic + "/set/ac/mode" && message == "dry") ac.setMode(2);  //ac.setMode(kGreeDry);
-    else if (String(topic) == MQTT_Sub_Topic + "/set/ac/mode" && message == "fan_only") ac.setMode(3);  //ac.setMode(kGreeFan);
-  //  else if (String(topic) == "nodemcuv3//set/ac/mode" && message == "heat") ac.setMode(4);  //ac.setMode(kGreeHeat); 
-  }
-  if (String(topic) == MQTT_Sub_Topic + "/set/ac/fan" && message == "Auto") ac.setFan(0);  //ac.setFan(kGreeFanAuto);
-  else if (String(topic) == MQTT_Sub_Topic + "/set/ac/fan" && message == "Minimum") ac.setFan(1);  //ac.setFan(kGreeFanMin);
-  else if (String(topic) == MQTT_Sub_Topic + "/set/ac/fan" && message == "Medium") ac.setFan(2);  //ac.setFan(kGreeFanMed);
-  else if (String(topic) == MQTT_Sub_Topic + "/set/ac/fan" && message == "Maximum") ac.setFan(3);  //ac.setFan(kGreeFanMax);
-  if (String(topic) == MQTT_Sub_Topic + "/set/ac/swing" && message == "Last Pos") ac.setSwingVertical(0,0);  //ac.setSwingVertical(false,kGreeSwingLastPos);  //0b0000
-  else if (String(topic) == MQTT_Sub_Topic + "/set/ac/swing" && message == "Auto") ac.setSwingVertical(1,1);  //ac.setSwingVertical(true,kGreeSwingAuto);  //0b0001
-  else if (String(topic) == MQTT_Sub_Topic + "/set/ac/swing" && message == "Up") ac.setSwingVertical(0,2);  //ac.setSwingVertical(false,kGreeSwingUp);  //0b0010
-  else if (String(topic) == MQTT_Sub_Topic + "/set/ac/swing" && message == "Middle Up") ac.setSwingVertical(0,3);  //ac.setSwingVertical(false,kGreeSwingMiddleUp);  //0b0011
-  else if (String(topic) == MQTT_Sub_Topic + "/set/ac/swing" && message == "Middle") ac.setSwingVertical(0,4);  //ac.setSwingVertical(false,kGreeSwingMiddle);  //0b0100
-  else if (String(topic) == MQTT_Sub_Topic + "/set/ac/swing" && message == "Middle Down") ac.setSwingVertical(0,5);  //ac.setSwingVertical(false,kGreeSwingMiddleDown);  //0b0101
-  else if (String(topic) == MQTT_Sub_Topic + "/set/ac/swing" && message == "Down") ac.setSwingVertical(0,6);  //ac.setSwingVertical(false,kGreeSwingDown);  //0b0110
-  else if (String(topic) == MQTT_Sub_Topic + "/set/ac/swing" && message == "Down Auto") ac.setSwingVertical(1,7);  //ac.setSwingVertical(true,kGreeSwingDownAuto);  //0b0111
-  else if (String(topic) == MQTT_Sub_Topic + "/set/ac/swing" && message == "Middle Auto") ac.setSwingVertical(1,9);  //ac.setSwingVertical(true,kGreeSwingMiddleAuto);  //0b1001
-  else if (String(topic) == MQTT_Sub_Topic + "/set/ac/swing" && message == "Up Auto") ac.setSwingVertical(1,11);  //ac.setSwingVertical(true,kGreeSwingUpAuto);  //0b1011
-  if (strstr(topic, (MQTT_Sub_Topic + "/set/ac").c_str()) != NULL) {
-    printState();
-    PublishACState();
-    ac.send();
+
+  if (String(topic) == MQTT_Sub_Topic + "/set/ac") {
+    DynamicJsonDocument jmqttdata(512);
+    DeserializationError error = deserializeJson(jmqttdata, message);
+    if (error) {
+      Serial.print(F("deserializeJson() failed: "));
+      Serial.println(error.f_str());
+      return;
+    }
+    ACParam.protocol = protocol(jmqttdata["Protocol"]);
+    ACParam.model = irac.strToModel(jmqttdata["Model"]);
+    ACParam.power = jmqttdata["Power"];
+    ACParam.mode = irac.strToOpmode(jmqttdata["Mode"]);
+    ACParam.degrees = jmqttdata["Temperature"];
+    ACParam.celsius = jmqttdata["Celsius"];
+    ACParam.fanspeed = irac.strToFanspeed(jmqttdata["Fan"]);
+    ACParam.swingv = irac.strToSwingV(jmqttdata["SwingV"]);
+    ACParam.swingh = irac.strToSwingH(jmqttdata["SwingH"]);
+    ACParam.quiet = jmqttdata["Quiet"];
+    ACParam.turbo = jmqttdata["Turbo"];
+    ACParam.econo = jmqttdata["Eco"];
+    ACParam.light = jmqttdata["Light"];
+    ACParam.filter = jmqttdata["Filter"];
+    ACParam.clean = jmqttdata["Clean"];
+    ACParam.beep = jmqttdata["Beep"];
+    ACParam.sleep = jmqttdata["Sleep"];
+    ACParam.clock = jmqttdata["Clock"];
+    irac.sendAc(ACParam);
+    jmqttdata["Protocol"] = ACParam.protocol;
+    jmqttdata["Model"] = ACParam.model;
+    jmqttdata["Power"] = ACParam.power; 
+    jmqttdata["Mode"] = irac.opmodeToString(ACParam.mode); 
+    jmqttdata["Temperature"] = ACParam.degrees; 
+    jmqttdata["Celsius"] = ACParam.celsius; 
+    jmqttdata["Fan"] = irac.fanspeedToString(ACParam.fanspeed);
+    jmqttdata["SwingV"] = irac.swingvToString(ACParam.swingv);
+    jmqttdata["SwingH"] = irac.swinghToString(ACParam.swingh);
+    jmqttdata["Quiet"] = ACParam.quiet;
+    jmqttdata["Turbo"] = ACParam.turbo; 
+    jmqttdata["Eco"] = ACParam.econo;
+    jmqttdata["Light"] = ACParam.light;
+    jmqttdata["Filter"] = ACParam.filter; 
+    jmqttdata["Clean"] = ACParam.clean; 
+    jmqttdata["Beep"] = ACParam.beep; 
+    jmqttdata["Sleep"] = ACParam.sleep; 
+    jmqttdata["Clock"] = ACParam.clock;
+    char buffr[512];
+    size_t n = serializeJsonPretty(jmqttdata, buffr);
+    mqtt->publish((String(MQTT_Status_Topic)+"/ac").c_str(), buffr, n);
+    if (!n) {
+      Serial.print(F("serializeJsonPretty() failed: "));
+      Serial.println(error.f_str());
+      return;
+    }
+    Serial.println(F("Setting AC with Parameter : "));
+    serializeJsonPretty(jmqttdata, Serial);
   }
 
+    // Serial.print(F("Protocol : "));Serial.println(ACParam.protocol);
+    // Serial.print(F("Model : "));Serial.println(ACParam.model);
+    // Serial.print(F("Power : "));Serial.println(ACParam.power);
+    // Serial.print(F("Mode : "));Serial.println(irac.opmodeToString(ACParam.mode));
+    // Serial.print(F("Temperature : "));Serial.println(ACParam.degrees);
+    // Serial.print(F("Celsius : "));Serial.println(ACParam.celsius);
+    // Serial.print(F("FanSpeed : "));Serial.println(irac.fanspeedToString(ACParam.fanspeed));
+    // Serial.print(F("SwingV : "));Serial.println(irac.swingvToString(ACParam.swingv));
+    // Serial.print(F("SwingH : "));Serial.println(irac.swinghToString(ACParam.swingh));
+    // Serial.print(F("Quiet : "));Serial.println(ACParam.quiet);
+    // Serial.print(F("Turbo : "));Serial.println(ACParam.turbo);
+    // Serial.print(F("Eco : "));Serial.println(ACParam.econo);
+    // Serial.print(F("Light : "));Serial.println(ACParam.light);
+    // Serial.print(F("Filter : "));Serial.println(ACParam.filter);
+    // Serial.print(F("Clean : "));Serial.println(ACParam.clean);
+    // Serial.print(F("Beep : "));Serial.println(ACParam.beep);
+    // Serial.print(F("Sleep : "));Serial.println(ACParam.sleep);
+    // Serial.print(F("Clock : "));Serial.println(ACParam.clock);
+  // if (String(topic) == MQTT_Sub_Topic + "/set/ac/light") ac.setLight(message.toInt());
+  // if (String(topic) == MQTT_Sub_Topic + "/set/ac/turbo") ac.setTurbo(message.toInt());
+  // if (String(topic) == MQTT_Sub_Topic + "/set/ac/xfan") ac.setXFan(message.toInt());
+  // if (String(topic) == MQTT_Sub_Topic + "/set/ac/sleep") ac.setSleep(message.toInt());
+  // if (String(topic) == MQTT_Sub_Topic + "/set/ac/temperature") ac.setTemp(message.toInt());
+  // if (String(topic) == MQTT_Sub_Topic + "/set/ac/power") ac.setPower(message.toInt());
+  // if (String(topic) == MQTT_Sub_Topic + "/set/ac/mode" && message == "off") ac.setPower(0);
+  // if (String(topic) == MQTT_Sub_Topic + "/set/ac/mode" && message != "off") {
+  //   if (String(topic) == MQTT_Sub_Topic + "/set/ac/mode" && message == "auto") ac.setMode(0);  //ac.setMode(kGreeAuto);
+  //   else if (String(topic) == MQTT_Sub_Topic + "/set/ac/mode" && message == "cool") ac.setMode(1);  //ac.setMode(kGreeCool); 
+  //   else if (String(topic) == MQTT_Sub_Topic + "/set/ac/mode" && message == "dry") ac.setMode(2);  //ac.setMode(kGreeDry);
+  //   else if (String(topic) == MQTT_Sub_Topic + "/set/ac/mode" && message == "fan_only") ac.setMode(3);  //ac.setMode(kGreeFan);
+  // //  else if (String(topic) == "nodemcuv3//set/ac/mode" && message == "heat") ac.setMode(4);  //ac.setMode(kGreeHeat); 
+  //   ac.setPower(1);
+  // }
+  // if (String(topic) == MQTT_Sub_Topic + "/set/ac/fan" && message == "Auto") ac.setFan(0);  //ac.setFan(kGreeFanAuto);
+  // else if (String(topic) == MQTT_Sub_Topic + "/set/ac/fan" && message == "Minimum") ac.setFan(1);  //ac.setFan(kGreeFanMin);
+  // else if (String(topic) == MQTT_Sub_Topic + "/set/ac/fan" && message == "Medium") ac.setFan(2);  //ac.setFan(kGreeFanMed);
+  // else if (String(topic) == MQTT_Sub_Topic + "/set/ac/fan" && message == "Maximum") ac.setFan(3);  //ac.setFan(kGreeFanMax);
+  // if (String(topic) == MQTT_Sub_Topic + "/set/ac/swing" && message == "Last Pos") ac.setSwingVertical(0,0);  //ac.setSwingVertical(false,kGreeSwingLastPos);  //0b0000
+  // else if (String(topic) == MQTT_Sub_Topic + "/set/ac/swing" && message == "Auto") ac.setSwingVertical(1,1);  //ac.setSwingVertical(true,kGreeSwingAuto);  //0b0001
+  // else if (String(topic) == MQTT_Sub_Topic + "/set/ac/swing" && message == "Up") ac.setSwingVertical(0,2);  //ac.setSwingVertical(false,kGreeSwingUp);  //0b0010
+  // else if (String(topic) == MQTT_Sub_Topic + "/set/ac/swing" && message == "Middle Up") ac.setSwingVertical(0,3);  //ac.setSwingVertical(false,kGreeSwingMiddleUp);  //0b0011
+  // else if (String(topic) == MQTT_Sub_Topic + "/set/ac/swing" && message == "Middle") ac.setSwingVertical(0,4);  //ac.setSwingVertical(false,kGreeSwingMiddle);  //0b0100
+  // else if (String(topic) == MQTT_Sub_Topic + "/set/ac/swing" && message == "Middle Down") ac.setSwingVertical(0,5);  //ac.setSwingVertical(false,kGreeSwingMiddleDown);  //0b0101
+  // else if (String(topic) == MQTT_Sub_Topic + "/set/ac/swing" && message == "Down") ac.setSwingVertical(0,6);  //ac.setSwingVertical(false,kGreeSwingDown);  //0b0110
+  // else if (String(topic) == MQTT_Sub_Topic + "/set/ac/swing" && message == "Down Auto") ac.setSwingVertical(1,7);  //ac.setSwingVertical(true,kGreeSwingDownAuto);  //0b0111
+  // else if (String(topic) == MQTT_Sub_Topic + "/set/ac/swing" && message == "Middle Auto") ac.setSwingVertical(1,9);  //ac.setSwingVertical(true,kGreeSwingMiddleAuto);  //0b1001
+  // else if (String(topic) == MQTT_Sub_Topic + "/set/ac/swing" && message == "Up Auto") ac.setSwingVertical(1,11);  //ac.setSwingVertical(true,kGreeSwingUpAuto);  //0b1011
+  // if (strstr(topic, (MQTT_Sub_Topic + "/set/ac").c_str()) != NULL) {
+  //   printState();
+  //   PublishACState();
+  //   ac.send();
+  // }
 //  if (strstr(topic, (MQTT_Sub_Topic + "/universal").c_str()) != NULL) irsend.send(PANASONIC, 0x40040100BCBD, 48, 0);
 //  if (String(topic) == (MQTT_Sub_Topic + "/universal/tv-panasonic").c_str()) irsend.send(PANASONIC, (strtoull(message.c_str(), NULL, 16)), 48, 0);  //HEX Code manually by MQTT msg, ex : 0x40040100BCBD
   // if (strstr(topic, "/panasonic") != NULL) irsend.send(PANASONIC, (strtoull(message.c_str(), NULL, 16)), 48, 0);  //HEX Code manually by MQTT msg, ex : 0x40040100BCBD
   // if (strstr(topic, "/gree") != NULL) irsend.send(GREE, (strtoull(message.c_str(), NULL, 16)), 64, 0);  //HEX Code manually by MQTT msg, ex : 0x40040100BCBD
+
   if (strstr(topic, "/universal/") != NULL) {
     String topicStr = String(topic);
     int LastIndex = topicStr.lastIndexOf('/');
     int SecondLastIndex = topicStr.lastIndexOf('/', LastIndex - 1);
+    int ThirdLastIndex = topicStr.lastIndexOf('/', SecondLastIndex - 1);
     String jbit = topicStr.substring(LastIndex + 1);
     String proto = topicStr.substring(SecondLastIndex + 1, LastIndex);
+    String mdl = topicStr.substring(ThirdLastIndex + 1, SecondLastIndex);
     proto.toUpperCase();
     jbit.toUpperCase();
     //HEX Code manually by MQTT msg, ex : 0x40040100BCBD
-    if (jbit != "AC") irsend.send(protocol(proto),(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
+    if (jbit.toInt()) irsend.send(protocol(proto),(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
     //When got topic ended with "/AC"
     else {
-      DynamicJsonDocument jmqttdata(1024);
-      deserializeJson(jmqttdata, message);
-    // irac.sendAc(const decode_type_t vendor, const int16_t model, const bool power, const stdAc::opmode_t mode, const float degrees, const bool celsius, const stdAc::fanspeed_t fan, const stdAc::swingv_t swingv, const stdAc::swingh_t swingh, const bool quiet, const bool turbo, const bool econo, const bool light, const bool filter, const bool clean, const bool beep, const int16_t sleep=-1, const int16_t clock=-1);
-      irac.sendAc(protocol(proto), irac.strToModel(jmqttdata["Model"]), jmqttdata["Power"], irac.strToOpmode(jmqttdata["Mode"]), jmqttdata["Temperature"], 1, irac.strToFanspeed(jmqttdata["Fan"]), irac.strToSwingV(jmqttdata["SwingV"]), irac.strToSwingH("kAuto"), jmqttdata["Quiet"], jmqttdata["Turbo"], jmqttdata["Eco"], jmqttdata["Light"], 0, 0, jmqttdata["Beep"], -1, -1);
+      ACParam.model=irac.strToModel(mdl.c_str());
+      ACParam.protocol=protocol(proto);
+      if (jbit == "LIGHT") ACParam.light=message.toInt();
+      if (jbit == "TURBO") ACParam.turbo=message.toInt();
+      if (jbit == "XFAN") ACParam.clean=message.toInt();
+      if (jbit == "SLEEP") ACParam.sleep=message.toInt();
+      if (jbit == "CLOCK") ACParam.clock=message.toInt();
+      if (jbit == "TEMPERATURE") ACParam.degrees=message.toInt();
+      if (jbit == "QUIET") ACParam.quiet=message.toInt();
+      if (jbit == "ECO") ACParam.econo=message.toInt();
+      if (jbit == "FILTER") ACParam.filter=message.toInt();
+      if (jbit == "BEEP") ACParam.beep=message.toInt();
+      if (jbit == "CELSIUS") ACParam.celsius=message.toInt();
+      if (jbit == "POWER") ACParam.power=message.toInt();
+      if (jbit == "MODE") {
+        ACParam.mode=irac.strToOpmode(message.c_str());
+        if(message == "off") ACParam.power=0;
+        else ACParam.power=1;
+      }
+      if (jbit == "FAN") ACParam.fanspeed=irac.strToFanspeed(message.c_str());
+      if (jbit == "SWINGV") ACParam.swingv=irac.strToSwingV(message.c_str());
+      if (jbit == "SWINGH") ACParam.swingh=irac.strToSwingH(message.c_str());
+      irac.sendAc(ACParam);
+      PublishACState();
     }
   }
   if (String(topic) == (MQTT_Sub_Topic + "/set/ir-receiver/state") && message == "1") irrecst = true;
@@ -1394,32 +1575,53 @@ decode_type_t protocol(String pcek) {
 }
 
 void PublishACState() {
-  mqtt->publish((String(MQTT_Status_Topic)+"/ac/light").c_str(),String(ac.getLight()).c_str());
-  mqtt->publish((String(MQTT_Status_Topic)+"/ac/turbo").c_str(),String(ac.getTurbo()).c_str());
-  mqtt->publish((String(MQTT_Status_Topic)+"/ac/xfan").c_str(),String(ac.getXFan()).c_str());
-  mqtt->publish((String(MQTT_Status_Topic)+"/ac/sleep").c_str(),String(ac.getSleep()).c_str());
-  mqtt->publish((String(MQTT_Status_Topic)+"/ac/temperature").c_str(),String(ac.getTemp()).c_str());
-  mqtt->publish((String(MQTT_Status_Topic)+"/ac/power").c_str(),String(ac.getPower()).c_str());
-  if (ac.getPower() == 0) mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(), "off");
-  else if (ac.getMode() == 0) mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(),"auto");
-  else if (ac.getMode() == 1) mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(),"cool");
-  else if (ac.getMode() == 2) mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(),"dry");
-  else if (ac.getMode() == 3) mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(),"fan_only");
-//  else if (ac.getMode() == 4) mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(),"heat");
-  if (ac.getFan() == 0) mqtt->publish((String(MQTT_Status_Topic)+"/ac/fan").c_str(), "Auto");
-  else if (ac.getFan() == 1) mqtt->publish((String(MQTT_Status_Topic)+"/ac/fan").c_str(), "Minimum");
-  else if (ac.getFan() == 2) mqtt->publish((String(MQTT_Status_Topic)+"/ac/fan").c_str(), "Medium");
-  else if (ac.getFan() == 3) mqtt->publish((String(MQTT_Status_Topic)+"/ac/fan").c_str(), "Maximum");
-  if (ac.getSwingVerticalPosition() == 0) mqtt->publish((String(MQTT_Status_Topic)+"/ac/swing").c_str(), "Last Pos");
-  else if (ac.getSwingVerticalPosition() == 1) mqtt->publish((String(MQTT_Status_Topic)+"/ac/swing").c_str(), "Auto");
-  else if (ac.getSwingVerticalPosition() == 2) mqtt->publish((String(MQTT_Status_Topic)+"/ac/swing").c_str(), "Up");
-  else if (ac.getSwingVerticalPosition() == 3) mqtt->publish((String(MQTT_Status_Topic)+"/ac/swing").c_str(), "Middle Up");
-  else if (ac.getSwingVerticalPosition() == 4) mqtt->publish((String(MQTT_Status_Topic)+"/ac/swing").c_str(), "Middle");
-  else if (ac.getSwingVerticalPosition() == 5) mqtt->publish((String(MQTT_Status_Topic)+"/ac/swing").c_str(), "Middle Down");
-  else if (ac.getSwingVerticalPosition() == 6) mqtt->publish((String(MQTT_Status_Topic)+"/ac/swing").c_str(), "Down");
-  else if (ac.getSwingVerticalPosition() == 7) mqtt->publish((String(MQTT_Status_Topic)+"/ac/swing").c_str(), "Down Auto");
-  else if (ac.getSwingVerticalPosition() == 9) mqtt->publish((String(MQTT_Status_Topic)+"/ac/swing").c_str(), "Middle Auto");
-  else if (ac.getSwingVerticalPosition() == 11) mqtt->publish((String(MQTT_Status_Topic)+"/ac/swing").c_str(), "Up Auto");
+  mqtt->publish((String(MQTT_Status_Topic)+"/ac/model").c_str(),String(ACParam.model).c_str());
+  mqtt->publish((String(MQTT_Status_Topic)+"/ac/protocol").c_str(),String(ACParam.protocol).c_str());
+  mqtt->publish((String(MQTT_Status_Topic)+"/ac/light").c_str(),String(ACParam.light).c_str());
+  mqtt->publish((String(MQTT_Status_Topic)+"/ac/turbo").c_str(),String(ACParam.turbo).c_str());
+  mqtt->publish((String(MQTT_Status_Topic)+"/ac/xfan").c_str(),String(ACParam.clean).c_str());
+  mqtt->publish((String(MQTT_Status_Topic)+"/ac/sleep").c_str(),String(ACParam.sleep).c_str());
+  mqtt->publish((String(MQTT_Status_Topic)+"/ac/clock").c_str(),String(ACParam.clock).c_str());
+  mqtt->publish((String(MQTT_Status_Topic)+"/ac/temperature").c_str(),String(ACParam.degrees).c_str());
+  mqtt->publish((String(MQTT_Status_Topic)+"/ac/quiet").c_str(),String(ACParam.quiet).c_str());
+  mqtt->publish((String(MQTT_Status_Topic)+"/ac/eco").c_str(),String(ACParam.econo).c_str());
+  mqtt->publish((String(MQTT_Status_Topic)+"/ac/filter").c_str(),String(ACParam.filter).c_str());
+  mqtt->publish((String(MQTT_Status_Topic)+"/ac/beep").c_str(),String(ACParam.beep).c_str());
+  mqtt->publish((String(MQTT_Status_Topic)+"/ac/celsius").c_str(),String(ACParam.celsius).c_str());
+  mqtt->publish((String(MQTT_Status_Topic)+"/ac/power").c_str(),String(ACParam.power).c_str());
+  if (irac.opmodeToString(ACParam.mode) == "Off") mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(), "off");
+  else if (irac.opmodeToString(ACParam.mode) == "Cool") mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(), "cool");
+  else if (irac.opmodeToString(ACParam.mode) == "Dry") mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(), "dry");
+  else if (irac.opmodeToString(ACParam.mode) == "Fan") mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(), "fan_only");
+  else if (irac.opmodeToString(ACParam.mode) == "Auto") mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(), "auto");
+  mqtt->publish((String(MQTT_Status_Topic)+"/ac/fan").c_str(),irac.fanspeedToString(ACParam.fanspeed).c_str());
+  mqtt->publish((String(MQTT_Status_Topic)+"/ac/swingv").c_str(),irac.swingvToString(ACParam.swingv).c_str());
+  mqtt->publish((String(MQTT_Status_Topic)+"/ac/swingh").c_str(),irac.swinghToString(ACParam.swingh).c_str());
   Serial.println(F("AC State Updated"));
+//   mqtt->publish((String(MQTT_Status_Topic)+"/ac/light").c_str(),String(ac.getLight()).c_str());
+//   mqtt->publish((String(MQTT_Status_Topic)+"/ac/turbo").c_str(),String(ac.getTurbo()).c_str());
+//   mqtt->publish((String(MQTT_Status_Topic)+"/ac/xfan").c_str(),String(ac.getXFan()).c_str());
+//   mqtt->publish((String(MQTT_Status_Topic)+"/ac/sleep").c_str(),String(ac.getSleep()).c_str());
+//   mqtt->publish((String(MQTT_Status_Topic)+"/ac/temperature").c_str(),String(ac.getTemp()).c_str());
+//   mqtt->publish((String(MQTT_Status_Topic)+"/ac/power").c_str(),String(ac.getPower()).c_str());
+//   if (ac.getPower() == 0) mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(), "off");
+//   else if (ac.getMode() == 0) mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(),"auto");
+//   else if (ac.getMode() == 1) mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(),"cool");
+//   else if (ac.getMode() == 2) mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(),"dry");
+//   else if (ac.getMode() == 3) mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(),"fan_only");
+// //  else if (ac.getMode() == 4) mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(),"heat");
+//   if (ac.getFan() == 0) mqtt->publish((String(MQTT_Status_Topic)+"/ac/fan").c_str(), "Auto");
+//   else if (ac.getFan() == 1) mqtt->publish((String(MQTT_Status_Topic)+"/ac/fan").c_str(), "Minimum");
+//   else if (ac.getFan() == 2) mqtt->publish((String(MQTT_Status_Topic)+"/ac/fan").c_str(), "Medium");
+//   else if (ac.getFan() == 3) mqtt->publish((String(MQTT_Status_Topic)+"/ac/fan").c_str(), "Maximum");
+//   if (ac.getSwingVerticalPosition() == 0) mqtt->publish((String(MQTT_Status_Topic)+"/ac/swing").c_str(), "Last Pos");
+//   else if (ac.getSwingVerticalPosition() == 1) mqtt->publish((String(MQTT_Status_Topic)+"/ac/swing").c_str(), "Auto");
+//   else if (ac.getSwingVerticalPosition() == 2) mqtt->publish((String(MQTT_Status_Topic)+"/ac/swing").c_str(), "Up");
+//   else if (ac.getSwingVerticalPosition() == 3) mqtt->publish((String(MQTT_Status_Topic)+"/ac/swing").c_str(), "Middle Up");
+//   else if (ac.getSwingVerticalPosition() == 4) mqtt->publish((String(MQTT_Status_Topic)+"/ac/swing").c_str(), "Middle");
+//   else if (ac.getSwingVerticalPosition() == 5) mqtt->publish((String(MQTT_Status_Topic)+"/ac/swing").c_str(), "Middle Down");
+//   else if (ac.getSwingVerticalPosition() == 6) mqtt->publish((String(MQTT_Status_Topic)+"/ac/swing").c_str(), "Down");
+//   else if (ac.getSwingVerticalPosition() == 7) mqtt->publish((String(MQTT_Status_Topic)+"/ac/swing").c_str(), "Down Auto");
+//   else if (ac.getSwingVerticalPosition() == 9) mqtt->publish((String(MQTT_Status_Topic)+"/ac/swing").c_str(), "Middle Auto");
+//   else if (ac.getSwingVerticalPosition() == 11) mqtt->publish((String(MQTT_Status_Topic)+"/ac/swing").c_str(), "Up Auto");
 }
-

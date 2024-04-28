@@ -5,25 +5,50 @@ Memungkinkan untuk melakukan pengendalian dan otomatisasi untuk perangkat yang b
 Sketch Arduino cek di sini [ArduinoESP Smart IR Remote MQTT](https://github.com/robertrullyp/IRRemote-MQTTS/blob/main/src/IRRemote-MQTTS.ino)
 
 ## New Updates
-Update buat set ac pake urutan data dengan format json, buat set AC lewat komuniasi serial misalnya formatnya gini
+Fitur OTA buat ESP8266 dibuang karna bermasalah sama memory, terkadang bikin perangkat restart dengan kode exception. Jadi sementara OTA Update ada buat ESP32 aja.
+Update buat set ac pake urutan data dengan format json, buat set AC lewat komuniasi serial misalnya formatnya gini :
+dan akan ngirim balik keterangan parameter sesuai ketentuan bahkan jika gagal buat baca parameter yg dikirim akan tampil di serial monitor
 
-    {"Protocol":"GREE","Model":"YAW1F","Power":1,"Mode":"kCool","Temperature":24,"Fan":"kAuto","SwingV":"kAuto","Quiet":0,"Turbo":0,"Eco":0,"Light":1,"Beep":1}
+    {"Protocol":"GREE","Model":"YB1FA","Power":1,"Mode":"fan","Temperature":25,"Celsius":1,"Fan":"max","SwingV":"highest","SwingH":"Auto","Quiet":false,"Turbo":false,"Eco":false,"Light":true,"Filter":true,"Clean":false,"Beep":true,"Sleep":-1,"Clock":-1}
 
-untuk set melalui mqtt kirim topic ke [usermqtt]/[UID][ChipID]/set/universal/[protokol]/[bit] misalnya: robert/NodeMCU-v3-fd8575/set/universal/GREE/AC format data jsonnya misalnya gini :
+untuk set melalui mqtt kirim topic ke [usermqtt]/[UID][ChipID]/set/ac misalnya: robert/NodeMCU-v3-fd8575/set/ac format data jsonnya misalnya gini :
+status(state) topicnya dengan format json yg sama ada di [usermqtt]/[UID][ChipID]/state/ac misalnya: robert/NodeMCU-v3-fd8575/state/ac
 
     {
-        "Model":"YAW1F",
-        "Power":1,
-        "Mode":"kCool",
-        "Temperature":24,
-        "Fan":"kAuto",
-        "SwingV":"kAuto",
-        "Quiet":0,
-        "Turbo":0,
-        "Eco":0,
-        "Light":1,
-        "Beep":1
+        "Protocol":"GREE",
+        "Model":"YB1FA",
+        "Power": true,
+        "Mode": "cool",
+        "Temperature": 21,
+        "Celsius": true,
+        "Fan": "max",
+        "SwingV": "Auto",
+        "SwingH": "Auto",
+        "Quiet": false,
+        "Turbo": false,
+        "Eco": false,
+        "Light": true,
+        "Filter": true,
+        "Clean": false,
+        "Beep": true,
+        "Sleep": -1,
+        "Clock": -1
     }
+
+
+perlu dipastiin juga MQTT_MAX_PACKET_SIZE di library PubSubClient sesuai karna default 256 byte (edit file PubSubClient.h) biar bisa jalan lancar buat kirim terima data dengan json format seperti diatas, berdasarkan hasil kalkulator online ukurannya sekitar 360 byte, biar aman edit PubSubClient.h cari MQTT_MAX_PACKET_SIZE rubah jadi gini aja :
+    
+    #define MQTT_MAX_PACKET_SIZE 512
+
+
+untuk set melalui topic mqtt dengan masing-masing parameter punya topic sendiri-sendiri struktur topicnya gini :
+[usermqtt]/[UID][ChipID]/set/universal/[ModelRemoteAC]/[PROTOKOL]/[ParameterAC] misalnya robert/NodeMCU-v3-fd8575/set/universal/yb1fa/gree/power
+cek di bagian demo buat lebih lanjutnya integrasi di home assistant..!
+
+![Capture](https://github.com/robertrullyp/IRRemote-MQTTS/assets/12167355/c4607ee6-ba7c-4468-8402-ae780a543336)
+
+
+Topic di [usermqtt]/[UID][ChipID]/state/ir-receiver/hexcode berisi code dari pembacaan ir receiver perangkat, kalau pake home assistan atau dashboard lain yang mendukung, ini juga bisa dimanfaatkan buat trigger automation misalnya dengan remot tv bisa buat nyalain lampu, dsb.. coba oprek aja di dashboard kalian hehe 
 
 Untuk model ada apa aja yang didukung di [List Protokol](https://github.com/crankyoldgit/IRremoteESP8266/blob/master/SupportedProtocols.md). Untuk mode, fan, swing, dsb cek di enum librarynya atau sumber bacaanya ada [disini referensinya](https://crankyoldgit.github.io/IRremoteESP8266/doxygen/html/namespacestdAc.html#a8bb0dbf18fe69f639f4ac0b3ff133383)
 Untuk nentuin prioritas server mqtt juga udah bisa dimasukin langsung di webconfig, bisa dipilih lebih prefer ke server lokal dulu nyoba konek atau ke server iot dulu. Buat opsi use ssl/tls masih dikembangin, sementara buat nentuin koneksi mau pake ssl atau non ssl lewat sketch arduino dulu.. kalau pake ssl uncomment aja, kalau mau pake koneksi non-ssl jadiin comment, code di sketchnya yang ini : 
@@ -109,6 +134,61 @@ Modul IR Emitter bisa diganti dengan rangkaian mosfet driver gini :
 ## Demo
 
 Integrasi dengan Home Assistant:
+Buat nambahin perangkat MQTT HVAC di Home Assistant pake device ini, configuration.yaml kurang lebih gini :
+    
+    mqtt: 
+      - climate:
+          name: SHARP AH-A5UCYN
+          unique_id: nodemcu_mqtt_hvac
+          modes:
+            - "off"
+            - "auto"
+            - "cool"
+            - "dry"
+            - "fan_only"
+        #    - "heat"
+          swing_modes:
+            - "Off"
+            - "Auto"
+            - "Highest"
+            - "High"
+            - "Middle"
+            - "Low"
+            - "Lowest"
+          fan_modes:
+            - "Auto"
+            - "Min"
+            - "Medium"
+            - "Max"
+          max_temp: 30
+          min_temp: 16
+        #  initial: 25
+          power_command_topic: "robert/NodeMCU-v3-fd8575/set/universal/yb1fa/gree/power"
+          power_command_template: "{{ value }}"
+        #  power_state_topic: "usertest/NodeMCU-v3-fd8575/state/ac/power"
+        #  power_state_template: "{{ value }}"
+          payload_on: "1"
+          payload_off: "0"
+          mode_command_topic: "robert/NodeMCU-v3-fd8575/set/universal/yb1fa/gree/mode"
+        #  mode_command_template: "{{ value if value=="off" else "on" }}"
+          mode_state_topic: "robert/NodeMCU-v3-fd8575/state/ac/mode"
+          mode_state_template: "{{ value }}"
+          temperature_command_topic: "robert/NodeMCU-v3-fd8575/set/universal/yb1fa/gree/temperature"
+          temperature_state_topic: "robert/NodeMCU-v3-fd8575/state/ac/temperature"
+          temperature_state_template: "{{ value }}"
+          fan_mode_command_topic: "robert/NodeMCU-v3-fd8575/set/universal/yb1fa/gree/fan"
+          fan_mode_state_topic: "robert/NodeMCU-v3-fd8575/state/ac/fan"
+          fan_mode_state_template: "{{ value }}"
+          swing_mode_command_topic: "robert/NodeMCU-v3-fd8575/set/universal/yb1fa/gree/swingv"
+          swing_mode_state_topic: "robert/NodeMCU-v3-fd8575/state/ac/swingv"
+          precision: 1.0
+          retain: true
+          current_temperature_topic: "robert/NodeMCU-v3-fd8575/Sensors/Temperature"
+          current_temperature_template: "{{ value }}"
+          current_humidity_topic : "robert/NodeMCU-v3-fd8575/Sensors/Humidity"
+          current_humidity_template : "{{ value }}"
+
+Contoh diatas pake parameter dengan masing-masing topic berisi satu raw data untuk satu parameter, kalau mau pake format json tinggal sesuaikan aja topic nya sesuai struktur topic yang udah dijelasin sebelumnya di awal, lalu sesuaikan template buat kirim dan terima data.
 
 ![photo_2023-05-05_16-09-44](https://github.com/robertrullyp/IRRemote-MQTTS/assets/12167355/ba63651d-536f-444e-b8f3-36488e225426)
 
