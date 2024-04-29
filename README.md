@@ -53,10 +53,20 @@ Perlu dipastiin juga MQTT_MAX_PACKET_SIZE di library PubSubClient sesuai karna d
 
 untuk set melalui topic mqtt dengan masing-masing parameter punya topic sendiri-sendiri struktur topicnya gini :
 
-![Capture](https://github.com/robertrullyp/IRRemote-MQTTS/assets/12167355/c4607ee6-ba7c-4468-8402-ae780a543336)
+![Capture](https://github.com/robertrullyp/IRRemote-MQTTS/assets/12167355/76ba07eb-329e-4e6e-8fc4-949b09ebbdef)
 
-[usermqtt]/[UID][ChipID]/set/universal/[ModelRemoteAC]/[PROTOKOL]/[ParameterAC] misalnya robert/NodeMCU-v3-fd8575/set/universal/yb1fa/gree/power
+
+[usermqtt]/[UID][ChipID]/set/ac/[ModelRemoteAC]/[PROTOKOL]/[ParameterAC] misalnya robert/NodeMCU-v3-fd8575/set/ac/yb1fa/gree/power
 cek di bagian demo buat lebih lanjutnya integrasi di home assistant..!
+
+Struktur topic sama aja kalau mau kirim pake code universal, misalnya udah dicatat code buat nyalain TV Panasonic, kirim data mqtt ke topic [usermqtt]/[UID][ChipID]/set/universal/[PROTOKOL]/[nBit] payload datanya isi dengan codenya misal "0x40040100BCBD". Atau bisa dikirim dengan format json ke topic [usermqtt]/[UID][ChipID]/set/universal payload datanya contohnya:
+
+    {
+        "Protocol":"PANASONIC",
+        "Code":"0x400401000405",
+        "Bit":48,
+        "Repeat":0
+    }
 
 Topic di [usermqtt]/[UID][ChipID]/state/ir-receiver/hexcode berisi code dari pembacaan ir receiver perangkat, kalau pake home assistan atau dashboard lain yang mendukung, ini juga bisa dimanfaatkan buat trigger automation misalnya dengan remot tv bisa buat nyalain lampu, dsb.. coba oprek aja di dashboard kalian hehe 
 

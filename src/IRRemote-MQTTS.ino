@@ -196,7 +196,7 @@ char custom_KEY[custom_KEY_LEN];
 #ifdef USE_SSL
 char custom_FINGERPRINT[custom_FINGERPRINT_LEN];
 #endif
-bool servernet;
+bool servernet = false;
 // Function Prototypes
 void MQTT_connect();
 bool readConfigFile();
@@ -589,7 +589,6 @@ bool loadConfigData() {
     LOGERROR(F("failed"));
     return false;
   }
-  servernet = custom_SERVERPRIO;
 }
 
 void saveConfigData() {
@@ -639,7 +638,7 @@ void createNewInstances() {
     client = new WiFiClientSecure(); // SSL/TLS
 #ifdef ESP32
     replacenewline(custom_FINGERPRINT);
-    if (servernet == false) client->setInsecure();
+    if (servernet == custom_SERVERPRIO) client->setInsecure();
     else client->setCACert(custom_FINGERPRINT);
 #else
     client->setFingerprint(custom_FINGERPRINT); // SSL/TLS Required
@@ -652,21 +651,21 @@ void createNewInstances() {
   }
   if (!mqtt) {  // Create new instances from new data
     //Setup the MQTT client class by passing in the WiFi client and MQTT server and login details.
+    // mqtt = new PubSubClient(*client);
     MQTT_Sub_Topic = String(custom_USERNAME) + "/" + ClientNID;
-    mqtt = new PubSubClient(*client);
-    mqtt->setCallback(callback);
-    if (servernet == false) {
-      // mqtt = new PubSubClient(custom_SERVER_LOCAL,atoi(custom_SERVERPORT),callback,*client);
-      mqtt->setServer(custom_SERVER_LOCAL, atoi(custom_SERVERPORT));
+    if (servernet == custom_SERVERPRIO) {
+      mqtt = new PubSubClient(custom_SERVER_LOCAL,atoi(custom_SERVERPORT),callback,*client);
+      // mqtt->setServer(custom_SERVER_LOCAL, atoi(custom_SERVERPORT));
       Serial.println(F("PAKE SERVER LOCAL"));
       }
     else { 
-      // mqtt = new PubSubClient(custom_SERVER,atoi(custom_SERVERPORT),callback,*client);
-      mqtt->setServer(custom_SERVER, atoi(custom_SERVERPORT));
+      mqtt = new PubSubClient(custom_SERVER,atoi(custom_SERVERPORT),callback,*client);
+      // mqtt->setServer(custom_SERVER, atoi(custom_SERVERPORT));
       Serial.println(F("PAKE SERVER IOT"));
-    }
-    if (mqtt->connect(ClientNID.c_str(),custom_USERNAME, custom_KEY)) mqtt->subscribe((MQTT_Sub_Topic + "/set/#").c_str());
-    else Serial.println(F("MQTT Failed to Connect!"));
+      }
+    // mqtt->setCallback(callback);
+    mqtt->connect(ClientNID.c_str(),custom_USERNAME, custom_KEY);
+    mqtt->subscribe((MQTT_Sub_Topic + "/set/#").c_str());
     Serial.print(F("Creating new MQTT object : "));
     if (mqtt) {
       Serial.println(F("OK"));
@@ -990,9 +989,9 @@ void MQTT_connect() {
   if (mqtt->connected()) {
     return;
   }
-  Serial.println(F("Connecting to MQTT (2 attempts)..."));
-  uint8_t attempt = 2;
-  while ((ret = mqtt->connect(ClientNID.c_str(),custom_USERNAME, custom_KEY)) != 1) {    // connect will return 0 for connected
+  Serial.println(F("Connecting to MQTT (3 attempts)..."));
+  uint8_t attempt = 3;
+  while ((ret = mqtt->connected()) != 1) {    // connect will return 0 for connected
 //    Serial.println(mqtt->connectErrorString(ret));
     Serial.println(mqtt->state());
     Serial.println(F("Another attemtpt to connect to MQTT in 2 seconds..."));
@@ -1201,7 +1200,8 @@ void loop() {
   if (drd) drd->loop();
   if(mqtt) mqtt->loop();
   check_status();  // this is just for checking if we are connected to WiFi  
-  if (irrecst && irrecv.decode(&results)) {
+  if (irrecst) {
+    irrecv.decode(&results);
     Serial.println();
     Serial.print(resultToHumanReadableBasic(&results));
     //    String description = IRAcUtils::resultAcToString(&results);
@@ -1272,6 +1272,7 @@ void loop() {
       Serial.println();
       Serial.println(F("Setting AC with Parameter : "));
       serializeJsonPretty(jdata, Serial);
+      PublishACState();
     }
   }
 }
@@ -1284,63 +1285,6 @@ void callback(char* topic, byte* payload, unsigned int length) {
     message += (char)payload[i];
   }
   Serial.println("Message: " + message);
-
-  if (String(topic) == MQTT_Sub_Topic + "/set/ac") {
-    DynamicJsonDocument jmqttdata(512);
-    DeserializationError error = deserializeJson(jmqttdata, message);
-    if (error) {
-      Serial.print(F("deserializeJson() failed: "));
-      Serial.println(error.f_str());
-      return;
-    }
-    ACParam.protocol = protocol(jmqttdata["Protocol"]);
-    ACParam.model = irac.strToModel(jmqttdata["Model"]);
-    ACParam.power = jmqttdata["Power"];
-    ACParam.mode = irac.strToOpmode(jmqttdata["Mode"]);
-    ACParam.degrees = jmqttdata["Temperature"];
-    ACParam.celsius = jmqttdata["Celsius"];
-    ACParam.fanspeed = irac.strToFanspeed(jmqttdata["Fan"]);
-    ACParam.swingv = irac.strToSwingV(jmqttdata["SwingV"]);
-    ACParam.swingh = irac.strToSwingH(jmqttdata["SwingH"]);
-    ACParam.quiet = jmqttdata["Quiet"];
-    ACParam.turbo = jmqttdata["Turbo"];
-    ACParam.econo = jmqttdata["Eco"];
-    ACParam.light = jmqttdata["Light"];
-    ACParam.filter = jmqttdata["Filter"];
-    ACParam.clean = jmqttdata["Clean"];
-    ACParam.beep = jmqttdata["Beep"];
-    ACParam.sleep = jmqttdata["Sleep"];
-    ACParam.clock = jmqttdata["Clock"];
-    irac.sendAc(ACParam);
-    jmqttdata["Protocol"] = ACParam.protocol;
-    jmqttdata["Model"] = ACParam.model;
-    jmqttdata["Power"] = ACParam.power; 
-    jmqttdata["Mode"] = irac.opmodeToString(ACParam.mode); 
-    jmqttdata["Temperature"] = ACParam.degrees; 
-    jmqttdata["Celsius"] = ACParam.celsius; 
-    jmqttdata["Fan"] = irac.fanspeedToString(ACParam.fanspeed);
-    jmqttdata["SwingV"] = irac.swingvToString(ACParam.swingv);
-    jmqttdata["SwingH"] = irac.swinghToString(ACParam.swingh);
-    jmqttdata["Quiet"] = ACParam.quiet;
-    jmqttdata["Turbo"] = ACParam.turbo; 
-    jmqttdata["Eco"] = ACParam.econo;
-    jmqttdata["Light"] = ACParam.light;
-    jmqttdata["Filter"] = ACParam.filter; 
-    jmqttdata["Clean"] = ACParam.clean; 
-    jmqttdata["Beep"] = ACParam.beep; 
-    jmqttdata["Sleep"] = ACParam.sleep; 
-    jmqttdata["Clock"] = ACParam.clock;
-    char buffr[512];
-    size_t n = serializeJsonPretty(jmqttdata, buffr);
-    mqtt->publish((String(MQTT_Status_Topic)+"/ac").c_str(), buffr, n);
-    if (!n) {
-      Serial.print(F("serializeJsonPretty() failed: "));
-      Serial.println(error.f_str());
-      return;
-    }
-    Serial.println(F("Setting AC with Parameter : "));
-    serializeJsonPretty(jmqttdata, Serial);
-  }
 
     // Serial.print(F("Protocol : "));Serial.println(ACParam.protocol);
     // Serial.print(F("Model : "));Serial.println(ACParam.model);
@@ -1399,51 +1343,187 @@ void callback(char* topic, byte* payload, unsigned int length) {
   // if (strstr(topic, "/panasonic") != NULL) irsend.send(PANASONIC, (strtoull(message.c_str(), NULL, 16)), 48, 0);  //HEX Code manually by MQTT msg, ex : 0x40040100BCBD
   // if (strstr(topic, "/gree") != NULL) irsend.send(GREE, (strtoull(message.c_str(), NULL, 16)), 64, 0);  //HEX Code manually by MQTT msg, ex : 0x40040100BCBD
 
-  if (strstr(topic, "/universal/") != NULL) {
+
+    //When got topic ended with "/AC"
+if (String(topic) == MQTT_Sub_Topic + "/set/ac") {
+    DynamicJsonDocument jmqttdata(512);
+    DeserializationError error = deserializeJson(jmqttdata, message);
+    if (error) {
+      Serial.print(F("deserializeJson() failed: "));
+      Serial.println(error.f_str());
+      return;
+    }
+    ACParam.protocol = protocol(jmqttdata["Protocol"]);
+    ACParam.model = irac.strToModel(jmqttdata["Model"]);
+    ACParam.power = jmqttdata["Power"];
+    ACParam.mode = irac.strToOpmode(jmqttdata["Mode"]);
+    ACParam.degrees = jmqttdata["Temperature"];
+    ACParam.celsius = jmqttdata["Celsius"];
+    ACParam.fanspeed = irac.strToFanspeed(jmqttdata["Fan"]);
+    ACParam.swingv = irac.strToSwingV(jmqttdata["SwingV"]);
+    ACParam.swingh = irac.strToSwingH(jmqttdata["SwingH"]);
+    ACParam.quiet = jmqttdata["Quiet"];
+    ACParam.turbo = jmqttdata["Turbo"];
+    ACParam.econo = jmqttdata["Eco"];
+    ACParam.light = jmqttdata["Light"];
+    ACParam.filter = jmqttdata["Filter"];
+    ACParam.clean = jmqttdata["Clean"];
+    ACParam.beep = jmqttdata["Beep"];
+    ACParam.sleep = jmqttdata["Sleep"];
+    ACParam.clock = jmqttdata["Clock"];
+    irac.sendAc(ACParam);
+    jmqttdata["Protocol"] = ACParam.protocol;
+    jmqttdata["Model"] = ACParam.model;
+    jmqttdata["Power"] = ACParam.power; 
+    jmqttdata["Mode"] = irac.opmodeToString(ACParam.mode); 
+    jmqttdata["Temperature"] = ACParam.degrees; 
+    jmqttdata["Celsius"] = ACParam.celsius; 
+    jmqttdata["Fan"] = irac.fanspeedToString(ACParam.fanspeed);
+    jmqttdata["SwingV"] = irac.swingvToString(ACParam.swingv);
+    jmqttdata["SwingH"] = irac.swinghToString(ACParam.swingh);
+    jmqttdata["Quiet"] = ACParam.quiet;
+    jmqttdata["Turbo"] = ACParam.turbo; 
+    jmqttdata["Eco"] = ACParam.econo;
+    jmqttdata["Light"] = ACParam.light;
+    jmqttdata["Filter"] = ACParam.filter; 
+    jmqttdata["Clean"] = ACParam.clean; 
+    jmqttdata["Beep"] = ACParam.beep; 
+    jmqttdata["Sleep"] = ACParam.sleep; 
+    jmqttdata["Clock"] = ACParam.clock;
+    char buffr[512];
+    size_t n = serializeJsonPretty(jmqttdata, buffr);
+    mqtt->publish((String(MQTT_Status_Topic)+"/set/ac").c_str(), buffr, n);
+    PublishACState();
+    if (!n) {
+      Serial.print(F("serializeJsonPretty() failed: "));
+      Serial.println(error.f_str());
+      return;
+    }
+    Serial.println(F("Setting AC with Parameter : "));
+    serializeJsonPretty(jmqttdata, Serial);
+  }
+  else if (strstr(topic, "set/ac/") != NULL) {
     String topicStr = String(topic);
     int LastIndex = topicStr.lastIndexOf('/');
     int SecondLastIndex = topicStr.lastIndexOf('/', LastIndex - 1);
     int ThirdLastIndex = topicStr.lastIndexOf('/', SecondLastIndex - 1);
-    String jbit = topicStr.substring(LastIndex + 1);
+    String param = topicStr.substring(LastIndex + 1);
     String proto = topicStr.substring(SecondLastIndex + 1, LastIndex);
     String mdl = topicStr.substring(ThirdLastIndex + 1, SecondLastIndex);
-    proto.toUpperCase();
-    jbit.toUpperCase();
-    //HEX Code manually by MQTT msg, ex : 0x40040100BCBD
-    if (jbit.toInt()) irsend.send(protocol(proto),(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);
-    //When got topic ended with "/AC"
-    else {
-      ACParam.model=irac.strToModel(mdl.c_str());
-      ACParam.protocol=protocol(proto);
-      if (jbit == "LIGHT") ACParam.light=message.toInt();
-      if (jbit == "TURBO") ACParam.turbo=message.toInt();
-      if (jbit == "XFAN") ACParam.clean=message.toInt();
-      if (jbit == "SLEEP") ACParam.sleep=message.toInt();
-      if (jbit == "CLOCK") ACParam.clock=message.toInt();
-      if (jbit == "TEMPERATURE") ACParam.degrees=message.toInt();
-      if (jbit == "QUIET") ACParam.quiet=message.toInt();
-      if (jbit == "ECO") ACParam.econo=message.toInt();
-      if (jbit == "FILTER") ACParam.filter=message.toInt();
-      if (jbit == "BEEP") ACParam.beep=message.toInt();
-      if (jbit == "CELSIUS") ACParam.celsius=message.toInt();
-      if (jbit == "POWER") ACParam.power=message.toInt();
-      if (jbit == "MODE") {
-        ACParam.mode=irac.strToOpmode(message.c_str());
-        if(message == "off") ACParam.power=0;
-        else ACParam.power=1;
-      }
-      if (jbit == "FAN") ACParam.fanspeed=irac.strToFanspeed(message.c_str());
-      if (jbit == "SWINGV") ACParam.swingv=irac.strToSwingV(message.c_str());
-      if (jbit == "SWINGH") ACParam.swingh=irac.strToSwingH(message.c_str());
-      irac.sendAc(ACParam);
-      PublishACState();
+    param.toUpperCase();
+    ACParam.model=irac.strToModel(mdl.c_str());
+    mqtt->publish((String(MQTT_Status_Topic)+"/ac/model").c_str(),String(ACParam.model).c_str());
+    ACParam.protocol=protocol(proto);
+    mqtt->publish((String(MQTT_Status_Topic)+"/ac/protocol").c_str(),String(ACParam.protocol).c_str());
+    if (param == "LIGHT") {
+      ACParam.light=message.toInt();
+      mqtt->publish((String(MQTT_Status_Topic)+"/ac/light").c_str(),String(ACParam.light).c_str());
     }
+    else if (param == "TURBO") {
+      ACParam.turbo=message.toInt();
+      mqtt->publish((String(MQTT_Status_Topic)+"/ac/turbo").c_str(),String(ACParam.turbo).c_str());
+    }
+    else if (param == "XFAN") {
+      ACParam.clean=message.toInt();
+      mqtt->publish((String(MQTT_Status_Topic)+"/ac/xfan").c_str(),String(ACParam.clean).c_str());
+    }
+    else if (param == "SLEEP") {
+      ACParam.sleep=message.toInt();
+      mqtt->publish((String(MQTT_Status_Topic)+"/ac/sleep").c_str(),String(ACParam.sleep).c_str());
+    }
+    else if (param == "CLOCK") {
+      ACParam.clock=message.toInt();
+      mqtt->publish((String(MQTT_Status_Topic)+"/ac/clock").c_str(),String(ACParam.clock).c_str());
+    }
+    else if (param == "TEMPERATURE") {
+      ACParam.degrees=message.toInt();
+      mqtt->publish((String(MQTT_Status_Topic)+"/ac/temperature").c_str(),String(ACParam.degrees).c_str());
+    }
+    else if (param == "QUIET") {
+      ACParam.quiet=message.toInt();
+      mqtt->publish((String(MQTT_Status_Topic)+"/ac/quiet").c_str(),String(ACParam.quiet).c_str());
+    }
+    else if (param == "ECO") {
+      ACParam.econo=message.toInt();
+      mqtt->publish((String(MQTT_Status_Topic)+"/ac/eco").c_str(),String(ACParam.econo).c_str());
+    }  
+    else if (param == "FILTER") {
+      ACParam.filter=message.toInt();
+      mqtt->publish((String(MQTT_Status_Topic)+"/ac/filter").c_str(),String(ACParam.filter).c_str());
+    }
+    else if (param == "BEEP") {
+      ACParam.beep=message.toInt();
+      mqtt->publish((String(MQTT_Status_Topic)+"/ac/beep").c_str(),String(ACParam.beep).c_str());
+    }
+    else if (param == "CELSIUS") {
+      ACParam.celsius=message.toInt();
+      mqtt->publish((String(MQTT_Status_Topic)+"/ac/celsius").c_str(),String(ACParam.celsius).c_str());
+    }
+    else if (param == "FAN") {
+      ACParam.fanspeed=irac.strToFanspeed(message.c_str());
+      mqtt->publish((String(MQTT_Status_Topic)+"/ac/fan").c_str(),irac.fanspeedToString(ACParam.fanspeed).c_str());
+    }
+    else if (param == "SWINGV") {
+      ACParam.swingv=irac.strToSwingV(message.c_str());
+      mqtt->publish((String(MQTT_Status_Topic)+"/ac/swingv").c_str(),irac.swingvToString(ACParam.swingv).c_str());
+    }
+    else if (param == "SWINGH") {
+      ACParam.swingh=irac.strToSwingH(message.c_str());
+      mqtt->publish((String(MQTT_Status_Topic)+"/ac/swingh").c_str(),irac.swinghToString(ACParam.swingh).c_str());
+    }
+    if (param == "POWER") {
+      if (message.toInt() != 0) {
+        ACParam.power=message.toInt();
+        mqtt->publish((String(MQTT_Status_Topic)+"/ac/power").c_str(),String(ACParam.power).c_str());
+      }
+      else {
+        ACParam.mode=irac.strToOpmode("Off");
+        mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(), "off");
+      }
+    }
+    if (param == "MODE") {
+      if(message != "off") {
+        ACParam.power=1;
+        ACParam.mode=irac.strToOpmode(message.c_str());
+        if (irac.opmodeToString(ACParam.mode) == "Cool") mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(), "cool");
+        else if (irac.opmodeToString(ACParam.mode) == "Dry") mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(), "dry");
+        else if (irac.opmodeToString(ACParam.mode) == "Fan") mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(), "fan_only");
+        else if (irac.opmodeToString(ACParam.mode) == "Auto") mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(), "auto");
+      }
+      else {
+        ACParam.power=0;
+        mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(), "off");
+        mqtt->publish((String(MQTT_Status_Topic)+"/ac/power").c_str(),String(ACParam.power).c_str());
+      }
+    }
+    irac.sendAc(ACParam);
+  }
+  if (String(topic) == MQTT_Sub_Topic + "/set/universal") {
+    DynamicJsonDocument jmqttdata(512);
+    DeserializationError error = deserializeJson(jmqttdata, message);
+    if (error) {
+      Serial.print(F("deserializeJson() failed: "));
+      Serial.println(error.f_str());
+      return;
+    }
+    irsend.send(protocol(jmqttdata["Protocol"]),(strtoull(jmqttdata["Code"], NULL, 16)), jmqttdata["Bit"], jmqttdata["Repeat"]);
+    Serial.println(F("Sending IR Code with Parameter : "));
+    serializeJsonPretty(jmqttdata, Serial);
+  }
+  else if (strstr(topic, "/set/universal/") != NULL) {
+    String topicStr = String(topic);
+    int LastIndex = topicStr.lastIndexOf('/');
+    int SecondLastIndex = topicStr.lastIndexOf('/', LastIndex - 1);
+    String jbit = topicStr.substring(LastIndex + 1);
+    String proto = topicStr.substring(SecondLastIndex + 1, LastIndex);
+    irsend.send(protocol(proto),(strtoull(message.c_str(), NULL, 16)), jbit.toInt(), 0);    //HEX Code manually by MQTT msg, ex : 0x40040100BCBD
   }
   if (String(topic) == (MQTT_Sub_Topic + "/set/ir-receiver/state") && message == "1") irrecst = true;
   else if (String(topic) == (MQTT_Sub_Topic + "/set/ir-receiver/state") && message == "0") irrecst = false;
 }
 
 decode_type_t protocol(String pcek) {
+    pcek.toUpperCase();
     if (pcek == "UNKNOWN") return UNKNOWN;
     else if (pcek == "RC5") return RC5;
     else if (pcek == "RC6") return RC6;
