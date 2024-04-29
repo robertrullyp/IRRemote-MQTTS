@@ -200,20 +200,20 @@ Buat nambahin perangkat MQTT HVAC di Home Assistant pake device ini, configurati
 
 Contoh diatas pake parameter dengan masing-masing topic berisi satu raw data untuk satu parameter, kalau mau pake format json tinggal sesuaikan aja topic nya sesuai struktur topic yang udah dijelasin sebelumnya di awal, lalu sesuaikan template buat kirim dan terima data.
 
-![photo_2024-04-29_02-06-15](https://github.com/robertrullyp/IRRemote-MQTTS/assets/12167355/51c41cb8-fcf4-41f1-a585-9e4a4037b817)
+![photo_2024-04-29_11-30-25](https://github.com/robertrullyp/IRRemote-MQTTS/assets/12167355/13e39945-4168-4955-b34a-bdf801088f3d)
 
 ![photo_2024-04-29_02-07-51](https://github.com/robertrullyp/IRRemote-MQTTS/assets/12167355/978de153-3a56-4625-8522-3db6fb481595)
-
-![photo_2023-05-05_16-09-44](https://github.com/robertrullyp/IRRemote-MQTTS/assets/12167355/ba63651d-536f-444e-b8f3-36488e225426)
 
 https://github.com/robertrullyp/IRRemote-MQTTS/assets/12167355/75182d38-0b2f-40bb-9a3a-3af6e9f59962
 
 
 https://github.com/robertrullyp/IRRemote-MQTTS/assets/12167355/f4d919bb-fa94-40f4-b695-e09f36397f24  
 
+
 Kontrol menggunakan Android MQTT Dashboard Client:
 
-![photo_2024-04-11_19-15-40](https://github.com/robertrullyp/IRRemote-MQTTS/assets/12167355/c1a319ea-93e0-438a-b82d-86c7dd958124)
+![photo_2024-04-29_11-26-11](https://github.com/robertrullyp/IRRemote-MQTTS/assets/12167355/5c8b46ef-1d80-4432-aa61-305c7b2f0447)
+
 
 ## Authors
 
