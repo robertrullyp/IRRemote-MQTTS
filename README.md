@@ -109,7 +109,7 @@ note :
     
     UID itu disesuaikan aja di sketch arduino atau [UID][ChipID] itu bisa dilihat berdasarkan nama SSID waktu ESP di mode webconfig
 
-Untuk struktur topic ACnya lebih lanjut cek pake [MQTT Explorer](https://mqtt-explorer.com/) aja yaa karna mungkin aja nanti akan ada update sketch kalau lagi gabut. ESP akan ngirim state AC & sensor terus menerus secara berkala, dan struktur topic kurang lebih gini (abaikan yang homeassistant) :
+Untuk struktur topic ACnya lebih lanjut cek pake [MQTT Explorer](https://mqtt-explorer.com/) aja yaa karna mungkin aja nanti akan ada update sketch kalau lagi gabut. ESP akan ngirim state AC & sensor terus menerus secara berkala, dan struktur topic kurang lebih gini (abaikan yang homeassistant) : [ini gak valid lagi, cek di new updates buat struktur topic barunya] 
 
 ![MQTT Struct](https://github.com/robertrullyp/IRRemote-MQTTS/assets/12167355/fab3467e-4508-46a2-be18-f7ab97fc22d2)
 
