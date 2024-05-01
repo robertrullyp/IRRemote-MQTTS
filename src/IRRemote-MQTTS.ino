@@ -340,6 +340,7 @@ IRrecv irrecv(kRecvPin, kCaptureBufferSize, kTimeout, true);
 decode_results results;
 AHTxx aht10(AHTXX_ADDRESS_X38, AHT1x_SENSOR); //sensor address, sensor type
 stdAc::state_t  ACParam;
+bool pubacmodeskip = false;
 String serin = "";
 
 WiFi_AP_IPConfig  WM_AP_IPconfig;
@@ -554,7 +555,7 @@ void check_status() {
   if ((current_millis > mqtt_publish_timeout) || (mqtt_publish_timeout == 0)) {  // Check every PUBLISH_INTERVAL (60) seconds.
     if (WiFi.status() == WL_CONNECTED) {
       publishMQTT();
-      PublishACState();
+      PublishACState(pubacmodeskip);
     }
     mqtt_publish_timeout = current_millis + PUBLISH_INTERVAL;
   }
@@ -1272,7 +1273,7 @@ void loop() {
       Serial.println();
       Serial.println(F("Setting AC with Parameter : "));
       serializeJsonPretty(jdata, Serial);
-      PublishACState();
+      PublishACState(pubacmodeskip);
     }
   }
 }
@@ -1286,24 +1287,6 @@ void callback(char* topic, byte* payload, unsigned int length) {
   }
   Serial.println("Message: " + message);
 
-    // Serial.print(F("Protocol : "));Serial.println(ACParam.protocol);
-    // Serial.print(F("Model : "));Serial.println(ACParam.model);
-    // Serial.print(F("Power : "));Serial.println(ACParam.power);
-    // Serial.print(F("Mode : "));Serial.println(irac.opmodeToString(ACParam.mode));
-    // Serial.print(F("Temperature : "));Serial.println(ACParam.degrees);
-    // Serial.print(F("Celsius : "));Serial.println(ACParam.celsius);
-    // Serial.print(F("FanSpeed : "));Serial.println(irac.fanspeedToString(ACParam.fanspeed));
-    // Serial.print(F("SwingV : "));Serial.println(irac.swingvToString(ACParam.swingv));
-    // Serial.print(F("SwingH : "));Serial.println(irac.swinghToString(ACParam.swingh));
-    // Serial.print(F("Quiet : "));Serial.println(ACParam.quiet);
-    // Serial.print(F("Turbo : "));Serial.println(ACParam.turbo);
-    // Serial.print(F("Eco : "));Serial.println(ACParam.econo);
-    // Serial.print(F("Light : "));Serial.println(ACParam.light);
-    // Serial.print(F("Filter : "));Serial.println(ACParam.filter);
-    // Serial.print(F("Clean : "));Serial.println(ACParam.clean);
-    // Serial.print(F("Beep : "));Serial.println(ACParam.beep);
-    // Serial.print(F("Sleep : "));Serial.println(ACParam.sleep);
-    // Serial.print(F("Clock : "));Serial.println(ACParam.clock);
   // if (String(topic) == MQTT_Sub_Topic + "/set/ac/light") ac.setLight(message.toInt());
   // if (String(topic) == MQTT_Sub_Topic + "/set/ac/turbo") ac.setTurbo(message.toInt());
   // if (String(topic) == MQTT_Sub_Topic + "/set/ac/xfan") ac.setXFan(message.toInt());
@@ -1393,7 +1376,7 @@ if (String(topic) == MQTT_Sub_Topic + "/set/ac") {
     char buffr[512];
     size_t n = serializeJsonPretty(jmqttdata, buffr);
     mqtt->publish((String(MQTT_Status_Topic)+"/set/ac").c_str(), buffr, n);
-    PublishACState();
+    PublishACState(pubacmodeskip);
     if (!n) {
       Serial.print(F("serializeJsonPretty() failed: "));
       Serial.println(error.f_str());
@@ -1415,88 +1398,43 @@ if (String(topic) == MQTT_Sub_Topic + "/set/ac") {
     mqtt->publish((String(MQTT_Status_Topic)+"/ac/model").c_str(),String(ACParam.model).c_str());
     ACParam.protocol=protocol(proto);
     mqtt->publish((String(MQTT_Status_Topic)+"/ac/protocol").c_str(),String(ACParam.protocol).c_str());
-    if (param == "LIGHT") {
-      ACParam.light=message.toInt();
-      mqtt->publish((String(MQTT_Status_Topic)+"/ac/light").c_str(),String(ACParam.light).c_str());
-    }
-    else if (param == "TURBO") {
-      ACParam.turbo=message.toInt();
-      mqtt->publish((String(MQTT_Status_Topic)+"/ac/turbo").c_str(),String(ACParam.turbo).c_str());
-    }
-    else if (param == "XFAN") {
-      ACParam.clean=message.toInt();
-      mqtt->publish((String(MQTT_Status_Topic)+"/ac/xfan").c_str(),String(ACParam.clean).c_str());
-    }
-    else if (param == "SLEEP") {
-      ACParam.sleep=message.toInt();
-      mqtt->publish((String(MQTT_Status_Topic)+"/ac/sleep").c_str(),String(ACParam.sleep).c_str());
-    }
-    else if (param == "CLOCK") {
-      ACParam.clock=message.toInt();
-      mqtt->publish((String(MQTT_Status_Topic)+"/ac/clock").c_str(),String(ACParam.clock).c_str());
-    }
-    else if (param == "TEMPERATURE") {
-      ACParam.degrees=message.toInt();
-      mqtt->publish((String(MQTT_Status_Topic)+"/ac/temperature").c_str(),String(ACParam.degrees).c_str());
-    }
-    else if (param == "QUIET") {
-      ACParam.quiet=message.toInt();
-      mqtt->publish((String(MQTT_Status_Topic)+"/ac/quiet").c_str(),String(ACParam.quiet).c_str());
-    }
-    else if (param == "ECO") {
-      ACParam.econo=message.toInt();
-      mqtt->publish((String(MQTT_Status_Topic)+"/ac/eco").c_str(),String(ACParam.econo).c_str());
-    }  
-    else if (param == "FILTER") {
-      ACParam.filter=message.toInt();
-      mqtt->publish((String(MQTT_Status_Topic)+"/ac/filter").c_str(),String(ACParam.filter).c_str());
-    }
-    else if (param == "BEEP") {
-      ACParam.beep=message.toInt();
-      mqtt->publish((String(MQTT_Status_Topic)+"/ac/beep").c_str(),String(ACParam.beep).c_str());
-    }
-    else if (param == "CELSIUS") {
-      ACParam.celsius=message.toInt();
-      mqtt->publish((String(MQTT_Status_Topic)+"/ac/celsius").c_str(),String(ACParam.celsius).c_str());
-    }
-    else if (param == "FAN") {
-      ACParam.fanspeed=irac.strToFanspeed(message.c_str());
-      mqtt->publish((String(MQTT_Status_Topic)+"/ac/fan").c_str(),irac.fanspeedToString(ACParam.fanspeed).c_str());
-    }
-    else if (param == "SWINGV") {
-      ACParam.swingv=irac.strToSwingV(message.c_str());
-      mqtt->publish((String(MQTT_Status_Topic)+"/ac/swingv").c_str(),irac.swingvToString(ACParam.swingv).c_str());
-    }
-    else if (param == "SWINGH") {
-      ACParam.swingh=irac.strToSwingH(message.c_str());
-      mqtt->publish((String(MQTT_Status_Topic)+"/ac/swingh").c_str(),irac.swinghToString(ACParam.swingh).c_str());
-    }
-    if (param == "POWER") {
-      if (message.toInt() != 0) {
-        ACParam.power=message.toInt();
-        mqtt->publish((String(MQTT_Status_Topic)+"/ac/power").c_str(),String(ACParam.power).c_str());
-      }
+    if (param == "LIGHT") ACParam.light=message.toInt();
+    else if (param == "TURBO") ACParam.turbo=message.toInt();
+    else if (param == "XFAN") ACParam.clean=message.toInt();
+    else if (param == "SLEEP") ACParam.sleep=message.toInt();
+    else if (param == "CLOCK") ACParam.clock=message.toInt();
+    else if (param == "TEMPERATURE") ACParam.degrees=message.toInt();
+    else if (param == "QUIET") ACParam.quiet=message.toInt();
+    else if (param == "ECO") ACParam.econo=message.toInt();
+    else if (param == "FILTER") ACParam.filter=message.toInt();
+    else if (param == "BEEP") ACParam.beep=message.toInt();
+    else if (param == "CELSIUS") ACParam.celsius=message.toInt();
+    else if (param == "FAN") ACParam.fanspeed=irac.strToFanspeed(message.c_str());
+    else if (param == "SWINGV") ACParam.swingv=irac.strToSwingV(message.c_str());
+    else if (param == "SWINGH") ACParam.swingh=irac.strToSwingH(message.c_str());
+    // Adjustment to Home Assistant MQTT HVAC
+    else if (param == "POWER") {
+      ACParam.power=message.toInt();
+      if (ACParam.power != 0) pubacmodeskip = false;
       else {
-        ACParam.mode=irac.strToOpmode("Off");
+        pubacmodeskip = true;
         mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(), "off");
       }
     }
     if (param == "MODE") {
-      if(message != "off") {
-        ACParam.power=1;
-        ACParam.mode=irac.strToOpmode(message.c_str());
-        if (irac.opmodeToString(ACParam.mode) == "Cool") mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(), "cool");
-        else if (irac.opmodeToString(ACParam.mode) == "Dry") mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(), "dry");
-        else if (irac.opmodeToString(ACParam.mode) == "Fan") mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(), "fan_only");
-        else if (irac.opmodeToString(ACParam.mode) == "Auto") mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(), "auto");
+      if (message != "off") {
+        ACParam.mode = irac.strToOpmode(message.c_str());
+        ACParam.power = true;
+        pubacmodeskip = false;
       }
       else {
-        ACParam.power=0;
+        ACParam.power = false;
+        pubacmodeskip = true;
         mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(), "off");
-        mqtt->publish((String(MQTT_Status_Topic)+"/ac/power").c_str(),String(ACParam.power).c_str());
       }
     }
     irac.sendAc(ACParam);
+    PublishACState(pubacmodeskip);
   }
   if (String(topic) == MQTT_Sub_Topic + "/set/universal") {
     DynamicJsonDocument jmqttdata(512);
@@ -1654,7 +1592,7 @@ decode_type_t protocol(String pcek) {
     else return UNUSED;
 }
 
-void PublishACState() {
+void PublishACState(bool skipmode) {
   mqtt->publish((String(MQTT_Status_Topic)+"/ac/model").c_str(),String(ACParam.model).c_str());
   mqtt->publish((String(MQTT_Status_Topic)+"/ac/protocol").c_str(),String(ACParam.protocol).c_str());
   mqtt->publish((String(MQTT_Status_Topic)+"/ac/light").c_str(),String(ACParam.light).c_str());
@@ -1669,14 +1607,17 @@ void PublishACState() {
   mqtt->publish((String(MQTT_Status_Topic)+"/ac/beep").c_str(),String(ACParam.beep).c_str());
   mqtt->publish((String(MQTT_Status_Topic)+"/ac/celsius").c_str(),String(ACParam.celsius).c_str());
   mqtt->publish((String(MQTT_Status_Topic)+"/ac/power").c_str(),String(ACParam.power).c_str());
-  if (irac.opmodeToString(ACParam.mode) == "Off") mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(), "off");
-  else if (irac.opmodeToString(ACParam.mode) == "Cool") mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(), "cool");
-  else if (irac.opmodeToString(ACParam.mode) == "Dry") mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(), "dry");
-  else if (irac.opmodeToString(ACParam.mode) == "Fan") mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(), "fan_only");
-  else if (irac.opmodeToString(ACParam.mode) == "Auto") mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(), "auto");
   mqtt->publish((String(MQTT_Status_Topic)+"/ac/fan").c_str(),irac.fanspeedToString(ACParam.fanspeed).c_str());
   mqtt->publish((String(MQTT_Status_Topic)+"/ac/swingv").c_str(),irac.swingvToString(ACParam.swingv).c_str());
   mqtt->publish((String(MQTT_Status_Topic)+"/ac/swingh").c_str(),irac.swinghToString(ACParam.swingh).c_str());
+  // Adjustment to Home Assistant MQTT HVAC
+  if (skipmode==0) {
+    if (irac.opmodeToString(ACParam.mode) == "Off") mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(), "off");
+    else if (irac.opmodeToString(ACParam.mode) == "Cool") mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(), "cool");
+    else if (irac.opmodeToString(ACParam.mode) == "Dry") mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(), "dry");
+    else if (irac.opmodeToString(ACParam.mode) == "Fan") mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(), "fan_only");
+    else if (irac.opmodeToString(ACParam.mode) == "Auto") mqtt->publish((String(MQTT_Status_Topic)+"/ac/mode").c_str(), "auto");
+  }
   Serial.println(F("AC State Updated"));
 //   mqtt->publish((String(MQTT_Status_Topic)+"/ac/light").c_str(),String(ac.getLight()).c_str());
 //   mqtt->publish((String(MQTT_Status_Topic)+"/ac/turbo").c_str(),String(ac.getTurbo()).c_str());
@@ -1705,3 +1646,24 @@ void PublishACState() {
 //   else if (ac.getSwingVerticalPosition() == 9) mqtt->publish((String(MQTT_Status_Topic)+"/ac/swing").c_str(), "Middle Auto");
 //   else if (ac.getSwingVerticalPosition() == 11) mqtt->publish((String(MQTT_Status_Topic)+"/ac/swing").c_str(), "Up Auto");
 }
+
+// void printacparam() {
+//     Serial.print(F("Protocol : "));Serial.println(ACParam.protocol);
+//     Serial.print(F("Model : "));Serial.println(ACParam.model);
+//     Serial.print(F("Power : "));Serial.println(ACParam.power);
+//     Serial.print(F("Mode : "));Serial.println(irac.opmodeToString(ACParam.mode));
+//     Serial.print(F("Temperature : "));Serial.println(ACParam.degrees);
+//     Serial.print(F("Celsius : "));Serial.println(ACParam.celsius);
+//     Serial.print(F("FanSpeed : "));Serial.println(irac.fanspeedToString(ACParam.fanspeed));
+//     Serial.print(F("SwingV : "));Serial.println(irac.swingvToString(ACParam.swingv));
+//     Serial.print(F("SwingH : "));Serial.println(irac.swinghToString(ACParam.swingh));
+//     Serial.print(F("Quiet : "));Serial.println(ACParam.quiet);
+//     Serial.print(F("Turbo : "));Serial.println(ACParam.turbo);
+//     Serial.print(F("Eco : "));Serial.println(ACParam.econo);
+//     Serial.print(F("Light : "));Serial.println(ACParam.light);
+//     Serial.print(F("Filter : "));Serial.println(ACParam.filter);
+//     Serial.print(F("Clean : "));Serial.println(ACParam.clean);
+//     Serial.print(F("Beep : "));Serial.println(ACParam.beep);
+//     Serial.print(F("Sleep : "));Serial.println(ACParam.sleep);
+//     Serial.print(F("Clock : "));Serial.println(ACParam.clock);
+// }
