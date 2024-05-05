@@ -1201,8 +1201,7 @@ void loop() {
   if (drd) drd->loop();
   if(mqtt) mqtt->loop();
   check_status();  // this is just for checking if we are connected to WiFi  
-  if (irrecst) {
-    irrecv.decode(&results);
+  if (irrecst == true && irrecv.decode(&results)) {
     Serial.println();
     Serial.print(resultToHumanReadableBasic(&results));
     //    String description = IRAcUtils::resultAcToString(&results);
