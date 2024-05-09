@@ -316,6 +316,9 @@ String ClientNID = UID + String(ESP_getChipId(), HEX);
 #ifdef ESP32
 const uint16_t kRecvPin = 16;
 const uint16_t kIrLed = 27;  // ESP8266 GPIO pin to use. Recommended: 4 (D2).
+const int d[] = {34,35,32,33};
+bool vd[] = {0,0,0,0};
+bool lvd[] = {0,0,0,0};
 #else
 const uint16_t kRecvPin = 14;
 const uint16_t kIrLed = 12;  // ESP8266 GPIO pin to use. Recommended: 4 (D2).
@@ -487,7 +490,7 @@ void heartBeatPrint() {
 
 void publishMQTT() {
   MQTT_connect();
-  if (mqtt->publish(String(MQTT_Pub_Topic + "/Sensors/Temperature").c_str(),String(aht10.readTemperature()).c_str())) {
+  if (mqtt->publish(String(MQTT_Pub_Topic + "/sensors/temperature").c_str(),String(aht10.readTemperature()).c_str())) {
     Serial.print(F("T"));        // T means publishing OK
     mqttfailcount = 0 ;
   }
@@ -495,7 +498,7 @@ void publishMQTT() {
     Serial.print(F("F"));        // F means publishing failure
     mqttfailcount = mqttfailcount+1 ;
   }
-  if (mqtt->publish(String(MQTT_Pub_Topic + "/Sensors/Humidity").c_str(),String(aht10.readHumidity()).c_str())) {
+  if (mqtt->publish(String(MQTT_Pub_Topic + "/sensors/humidity").c_str(),String(aht10.readHumidity()).c_str())) {
     Serial.print(F("H"));        // H means publishing OK
     mqttfailcount = 0 ;
   }
@@ -664,8 +667,8 @@ void createNewInstances() {
       // mqtt->setServer(custom_SERVER, atoi(custom_SERVERPORT));
       Serial.println(F("PAKE SERVER IOT"));
       }
-    // mqtt->setCallback(callback);
-    mqtt->connect(ClientNID.c_str(),custom_USERNAME, custom_KEY);
+    mqtt->setBufferSize(512);
+    mqtt->connect(ClientNID.c_str(), custom_USERNAME, custom_KEY, (MQTT_Pub_Topic + "/status").c_str(), 0, 1, "online");    
     mqtt->subscribe((MQTT_Sub_Topic + "/set/#").c_str());
     Serial.print(F("Creating new MQTT object : "));
     if (mqtt) {
@@ -1018,264 +1021,6 @@ void MQTT_connect() {
 //   Serial.println();
 // }
 
-void setup() {
-  // Put your setup code here, to run once
-  pinMode(LED_BUILTIN, OUTPUT);  // Initialize the LED digital pin as an output.
-  Serial.begin(115200);
-  while (!Serial);
-  delay(200);
-  Serial.print(F("\nStarting ConfigOnDRD_FS_MQTT_Ptr using ")); Serial.print(FS_Name);
-  Serial.print(F(" on ")); Serial.println(ARDUINO_BOARD);
-  Serial.println(ESP_WIFIMANAGER_VERSION);
-  Serial.println(ESP_DOUBLE_RESET_DETECTOR_VERSION);
-#if defined(ESP_WIFIMANAGER_VERSION_MIN)
-  if (ESP_WIFIMANAGER_VERSION_INT < ESP_WIFIMANAGER_VERSION_MIN) {
-    Serial.print("Warning. Must use this example on Version later than : ");
-    Serial.println(ESP_WIFIMANAGER_VERSION_MIN_TARGET);
-  }
-#endif
-  Serial.setDebugOutput(false);
-  if (FORMAT_FILESYSTEM) {  // Mount the filesystem
-    Serial.println(F("Forced Formatting."));
-    FileFS.format();
-  }
-#ifdef ESP32
-  if (!FileFS.begin(true))
-#else
-  if (!FileFS.begin())
-#endif
-  {
-#ifdef ESP8266
-    FileFS.format();  // Format FileFS if not yet
-#endif
-    Serial.println(F("SPIFFS/LittleFS failed! Already tried formatting."));
-    if (!FileFS.begin()) {
-      delay(100);      // prevents debug info from the library to hide err message.
-#if USE_LITTLEFS
-      Serial.println(F("LittleFS failed!. Please use SPIFFS or EEPROM. Stay forever"));
-#else
-      Serial.println(F("SPIFFS failed!. Please use LittleFS or EEPROM. Stay forever"));
-#endif
-      while (true) {
-        delay(1);
-      }
-    }
-  }
-
-  // New in v1.4.0
-  initAPIPConfigStruct(WM_AP_IPconfig);
-  initSTAIPConfigStruct(WM_STA_IPconfig);
-  //////
-
-  if (!readConfigFile()) {
-    Serial.println(F("Can't read Config File, using default values"));
-  }
-  drd = new DoubleResetDetector(DRD_TIMEOUT, DRD_ADDRESS);
-  if (!drd) {
-    Serial.println(F("Can't instantiate. Disable DRD feature"));
-  }
-  else if (drd->detectDoubleReset()) {
-//    ESP_wifiManager.setConfigPortalTimeout(0);   // DRD, disable timeout.
-    Serial.println(F("Open Config Portal without Timeout: Double Reset Detected"));
-    initialConfig = true;
-  }
-  if (initialConfig) {
-    loadConfigData();
-    wifi_manager();
-  }
-  else {
-    initialConfig = true;    // Pretend CP is necessary as we have no AP Credentials
-    if (loadConfigData()) {    // Load stored data, the addAP ready for MultiWiFi reconnection
-#if USE_ESP_WIFIMANAGER_NTP
-      if ( strlen(WM_config.TZ_Name) > 0 ) {
-        LOGERROR3(F("Current TZ_Name ="), WM_config.TZ_Name, F(", TZ = "), WM_config.TZ);
-#if ESP8266
-        configTime(WM_config.TZ, "pool.ntp.org");
-#else
-        //configTzTime(WM_config.TZ, "pool.ntp.org" );
-        configTzTime(WM_config.TZ, "time.nist.gov", "0.pool.ntp.org", "1.pool.ntp.org");
-#endif
-      }
-      else {
-        Serial.println(F("Current Timezone is not set. Enter Config Portal to set."));
-      }
-#endif
-
-      for (uint8_t i = 0; i < NUM_WIFI_CREDENTIALS; i++) {
-        // Don't permit NULL SSID and password len < MIN_AP_PASSWORD_SIZE (8)
-        if ( (String(WM_config.WiFi_Creds[i].wifi_ssid) != "") && (strlen(WM_config.WiFi_Creds[i].wifi_pw) >= MIN_AP_PASSWORD_SIZE) ) {
-          LOGERROR3(F("* Add SSID = "), WM_config.WiFi_Creds[i].wifi_ssid, F(", PW = "), WM_config.WiFi_Creds[i].wifi_pw );
-          wifiMulti.addAP(WM_config.WiFi_Creds[i].wifi_ssid, WM_config.WiFi_Creds[i].wifi_pw);
-          initialConfig = false;
-        }
-      }
-    }
-    if (initialConfig) {
-      Serial.println(F("Open Config Portal without Timeout: No stored WiFi Credentials"));
-      wifi_manager();
-    }
-    else if ( WiFi.status() != WL_CONNECTED ) {
-      Serial.println(F("ConnectMultiWiFi in setup"));
-      connectMultiWiFi();
-    }
-  }
-  digitalWrite(LED_BUILTIN, LED_OFF); // Turn led off as we are not in configuration mode.
-#ifdef ESP32
-//=================================================================================================================================
-  // Port defaults to 8266
-  // ArduinoOTA.setPort(8266);
-  // Hostname defaults to esp8266-[ChipID]
-  // ArduinoOTA.setHostname("myesp8266");
-  // No authentication by default
-  // ArduinoOTA.setPassword("admin");
-  // Password can be set with it's md5 value as well
-  // MD5(admin) = 21232f297a57a5a743894a0e4a801fc3
-  // ArduinoOTA.setPasswordHash("21232f297a57a5a743894a0e4a801fc3"); // "admin"
-  ArduinoOTA.setPasswordHash("63243dca61b32d6443e99bcc939b222f");  // "passwordota"
-  // ArduinoOTA.setPasswordHash("ac43724f16e9241d990427ab7c8f4228");
-  ArduinoOTA.onStart([]() {
-    String type;
-    if (ArduinoOTA.getCommand() == U_FLASH) {
-      type = "sketch";
-    } else {  // U_FS
-      type = "filesystem";
-    }
-    // NOTE: if updating FS this would be the place to unmount FS using FS.end()
-    Serial.println("Start updating " + type);
-  });
-  ArduinoOTA.onEnd([]() {
-    Serial.println(F("\nEnd"));
-  });
-  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
-  });
-  ArduinoOTA.onError([](ota_error_t error) {
-    Serial.printf("Error[%u]: ", error);
-    if (error == OTA_AUTH_ERROR) {
-      Serial.println(F("Auth Failed"));
-    } else if (error == OTA_BEGIN_ERROR) {
-      Serial.println(F("Begin Failed"));
-    } else if (error == OTA_CONNECT_ERROR) {
-      Serial.println(F("Connect Failed"));
-    } else if (error == OTA_RECEIVE_ERROR) {
-      Serial.println(F("Receive Failed"));
-    } else if (error == OTA_END_ERROR) {
-      Serial.println(F("End Failed"));
-    }
-  });
-  ArduinoOTA.begin();
-#endif
-//=================================================================================================================================
-  Wire.begin();
-  aht10.begin();
-  irsend.begin();
-  assert(irutils::lowLevelSanityCheck() == 0);
-#if DECODE_HASH
-  // Ignore messages with less than minimum on or off pulses.
-  irrecv.setUnknownThreshold(kMinUnknownSize);
-#endif  // DECODE_HASH
-  irrecv.setTolerance(kTolerancePercentage);  // Override the default tolerance.
-  irrecv.enableIRIn();  // Start the receiver  
-  // Serial.println(F("Default state of the remote."));
-  // Serial.println(F("Setting desired state for A/C."));
-  // ac.begin();
-  // ac.setUseFahrenheit(false); //ac.setUseFahrenheit(false), ac.setUseFahrenheit(true)
-  // ac.setDisplayTempSource(0);
-  // printState();
-#ifdef USE_SSL
-  Serial.println(F("SSL/TLS"));
-#else
-  Serial.println(F("NON-SSL/ TLS"));
-#endif
-}
-
-// Loop function
-void loop() {
-  // Call the double reset detector loop method every so often,
-  // so that it can recognise when the timeout expires.
-  // You can also call drd.stop() when you wish to no longer
-  // consider the next reset as a double reset.
-#ifdef ESP32
-  ArduinoOTA.handle();
-#endif
-  if (drd) drd->loop();
-  if(mqtt) mqtt->loop();
-  check_status();  // this is just for checking if we are connected to WiFi  
-  if (irrecst == true && irrecv.decode(&results)) {
-    Serial.println();
-    Serial.print(resultToHumanReadableBasic(&results));
-    //    String description = IRAcUtils::resultAcToString(&results);
-    //    if (description.length()) Serial.println(D_STR_MESGDESC ": " + description);
-    //    yield();  // Feed the WDT as the text output can take a while to print.
-    Serial.print(F("\nSending HEX code value......."));
-//    if (! mqtt->publish((String(MQTT_Pub_Topic) + "/ir-receiver/code").c_str(), String(results.value, HEX).c_str())) {
-//      Serial.println(F("Failed Sending Code"));
-    if (!mqtt->publish((String(MQTT_Pub_Topic) + "/state/ir-receiver/code").c_str(), String(resultToHumanReadableBasic(&results)).c_str())) {
-      Serial.println(F("Failed Sending Code"));
-    } else {
-      mqtt->publish((String(MQTT_Pub_Topic) + "/state/ir-receiver/hexcode").c_str(), String(resultToHexidecimal(&results)).c_str());
-      Serial.println(F("Code Sent!"));
-    }
-    Serial.print(F("HEX Code : ")); Serial.println(results.value, HEX);
-    Serial.println();
-    irrecv.resume();  // Receive the next value
-  }
-  if (Serial.available() > 0) {     // Serial Data Format {"Protocol":"GREE","Model":"YB1FA","Power":1,"Mode":"Cool","Temperature":23,"Celsius":1,"Fan":"max","SwingV":"highest","SwingH":"Auto","Quiet":false,"Turbo":false,"Eco":false,"Light":true,"Filter":true,"Clean":false,"Beep":true,"Sleep":-1,"Clock":-1}
-    char data = Serial.read();
-    serin += data;
-    if (data == '\n') {
-      DynamicJsonDocument jdata(512);
-      DeserializationError error = deserializeJson(jdata, serin);
-      if (error) {
-        Serial.print(F("deserializeJson() failed: "));
-        Serial.println(error.f_str());
-        return;
-      }
-      ACParam.protocol = protocol(jdata["Protocol"]);
-      ACParam.model = irac.strToModel(jdata["Model"]);
-      ACParam.power = jdata["Power"];
-      ACParam.mode = irac.strToOpmode(jdata["Mode"]);
-      ACParam.degrees = jdata["Temperature"];
-      ACParam.celsius = jdata["Celsius"];
-      ACParam.fanspeed = irac.strToFanspeed(jdata["Fan"]);
-      ACParam.swingv = irac.strToSwingV(jdata["SwingV"]);
-      ACParam.swingh = irac.strToSwingH(jdata["SwingH"]);
-      ACParam.quiet = jdata["Quiet"];
-      ACParam.turbo = jdata["Turbo"];
-      ACParam.econo = jdata["Eco"];
-      ACParam.light = jdata["Light"];
-      ACParam.filter = jdata["Filter"];
-      ACParam.clean = jdata["Clean"];
-      ACParam.beep = jdata["Beep"];
-      ACParam.sleep = jdata["Sleep"];
-      ACParam.clock = jdata["Clock"];
-      irac.sendAc(ACParam);
-      serin="";
-      jdata["Protocol"] = ACParam.protocol;
-      jdata["Model"] = ACParam.model;
-      jdata["Power"] = ACParam.power; 
-      jdata["Mode"] = irac.opmodeToString(ACParam.mode); 
-      jdata["Temperature"] = ACParam.degrees; 
-      jdata["Celsius"] = ACParam.celsius; 
-      jdata["Fan"] = irac.fanspeedToString(ACParam.fanspeed);
-      jdata["SwingV"] = irac.swingvToString(ACParam.swingv);
-      jdata["SwingH"] = irac.swinghToString(ACParam.swingh);
-      jdata["Quiet"] = ACParam.quiet;
-      jdata["Turbo"] = ACParam.turbo; 
-      jdata["Eco"] = ACParam.econo;
-      jdata["Light"] = ACParam.light;
-      jdata["Filter"] = ACParam.filter; 
-      jdata["Clean"] = ACParam.clean; 
-      jdata["Beep"] = ACParam.beep; 
-      jdata["Sleep"] = ACParam.sleep; 
-      jdata["Clock"] = ACParam.clock;
-      Serial.println();
-      Serial.println(F("Setting AC with Parameter : "));
-      serializeJsonPretty(jdata, Serial);
-      PublishACState(pubacmodeskip);
-    }
-  }
-}
 
 void callback(char* topic, byte* payload, unsigned int length) {
   Serial.print(F("Message received on topic: "));
@@ -1285,7 +1030,6 @@ void callback(char* topic, byte* payload, unsigned int length) {
     message += (char)payload[i];
   }
   Serial.println("Message: " + message);
-
   // if (String(topic) == MQTT_Sub_Topic + "/set/ac/light") ac.setLight(message.toInt());
   // if (String(topic) == MQTT_Sub_Topic + "/set/ac/turbo") ac.setTurbo(message.toInt());
   // if (String(topic) == MQTT_Sub_Topic + "/set/ac/xfan") ac.setXFan(message.toInt());
@@ -1327,7 +1071,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
 
 
     //When got topic ended with "/AC"
-if (String(topic) == MQTT_Sub_Topic + "/set/ac") {
+  if (String(topic) == MQTT_Sub_Topic + "/set/ac") {
     DynamicJsonDocument jmqttdata(512);
     DeserializationError error = deserializeJson(jmqttdata, message);
     if (error) {
@@ -1374,7 +1118,7 @@ if (String(topic) == MQTT_Sub_Topic + "/set/ac") {
     jmqttdata["Clock"] = ACParam.clock;
     char buffr[512];
     size_t n = serializeJsonPretty(jmqttdata, buffr);
-    mqtt->publish((String(MQTT_Status_Topic)+"/set/ac").c_str(), buffr, n);
+    mqtt->publish((String(MQTT_Status_Topic)+"/ac").c_str(), buffr, n);
     PublishACState(pubacmodeskip);
     if (!n) {
       Serial.print(F("serializeJsonPretty() failed: "));
@@ -1457,6 +1201,16 @@ if (String(topic) == MQTT_Sub_Topic + "/set/ac") {
   }
   if (String(topic) == (MQTT_Sub_Topic + "/set/ir-receiver/state") && message == "1") irrecst = true;
   else if (String(topic) == (MQTT_Sub_Topic + "/set/ir-receiver/state") && message == "0") irrecst = false;
+
+  if (String(topic) == MQTT_Sub_Topic + "/set/cmd") {
+    message.toUpperCase();
+    if (message == "RESET" || message == "REBOOT")
+#if ESP8266
+    ESP.reset();
+#else
+    ESP.restart();
+#endif
+  }
 }
 
 decode_type_t protocol(String pcek) {
@@ -1666,3 +1420,275 @@ void PublishACState(bool skipmode) {
 //     Serial.print(F("Sleep : "));Serial.println(ACParam.sleep);
 //     Serial.print(F("Clock : "));Serial.println(ACParam.clock);
 // }
+
+
+void setup() {
+  // Put your setup code here, to run once
+  pinMode(LED_BUILTIN, OUTPUT);  // Initialize the LED digital pin as an output.
+  Serial.begin(115200);
+  while (!Serial);
+  delay(200);
+  Serial.print(F("\nStarting ConfigOnDRD_FS_MQTT_Ptr using ")); Serial.print(FS_Name);
+  Serial.print(F(" on ")); Serial.println(ARDUINO_BOARD);
+  Serial.println(ESP_WIFIMANAGER_VERSION);
+  Serial.println(ESP_DOUBLE_RESET_DETECTOR_VERSION);
+#if defined(ESP_WIFIMANAGER_VERSION_MIN)
+  if (ESP_WIFIMANAGER_VERSION_INT < ESP_WIFIMANAGER_VERSION_MIN) {
+    Serial.print("Warning. Must use this example on Version later than : ");
+    Serial.println(ESP_WIFIMANAGER_VERSION_MIN_TARGET);
+  }
+#endif
+  Serial.setDebugOutput(false);
+  if (FORMAT_FILESYSTEM) {  // Mount the filesystem
+    Serial.println(F("Forced Formatting."));
+    FileFS.format();
+  }
+#ifdef ESP32
+  if (!FileFS.begin(true))
+#else
+  if (!FileFS.begin())
+#endif
+  {
+#ifdef ESP8266
+    FileFS.format();  // Format FileFS if not yet
+#endif
+    Serial.println(F("SPIFFS/LittleFS failed! Already tried formatting."));
+    if (!FileFS.begin()) {
+      delay(100);      // prevents debug info from the library to hide err message.
+#if USE_LITTLEFS
+      Serial.println(F("LittleFS failed!. Please use SPIFFS or EEPROM. Stay forever"));
+#else
+      Serial.println(F("SPIFFS failed!. Please use LittleFS or EEPROM. Stay forever"));
+#endif
+      while (true) {
+        delay(1);
+      }
+    }
+  }
+
+  // New in v1.4.0
+  initAPIPConfigStruct(WM_AP_IPconfig);
+  initSTAIPConfigStruct(WM_STA_IPconfig);
+  //////
+
+  if (!readConfigFile()) {
+    Serial.println(F("Can't read Config File, using default values"));
+  }
+  drd = new DoubleResetDetector(DRD_TIMEOUT, DRD_ADDRESS);
+  if (!drd) {
+    Serial.println(F("Can't instantiate. Disable DRD feature"));
+  }
+  else if (drd->detectDoubleReset()) {
+//    ESP_wifiManager.setConfigPortalTimeout(0);   // DRD, disable timeout.
+    Serial.println(F("Open Config Portal without Timeout: Double Reset Detected"));
+    initialConfig = true;
+  }
+  if (initialConfig) {
+    loadConfigData();
+    wifi_manager();
+  }
+  else {
+    initialConfig = true;    // Pretend CP is necessary as we have no AP Credentials
+    if (loadConfigData()) {    // Load stored data, the addAP ready for MultiWiFi reconnection
+#if USE_ESP_WIFIMANAGER_NTP
+      if ( strlen(WM_config.TZ_Name) > 0 ) {
+        LOGERROR3(F("Current TZ_Name ="), WM_config.TZ_Name, F(", TZ = "), WM_config.TZ);
+#if ESP8266
+        configTime(WM_config.TZ, "pool.ntp.org");
+#else
+        //configTzTime(WM_config.TZ, "pool.ntp.org" );
+        configTzTime(WM_config.TZ, "time.nist.gov", "0.pool.ntp.org", "1.pool.ntp.org");
+#endif
+      }
+      else {
+        Serial.println(F("Current Timezone is not set. Enter Config Portal to set."));
+      }
+#endif
+
+      for (uint8_t i = 0; i < NUM_WIFI_CREDENTIALS; i++) {
+        // Don't permit NULL SSID and password len < MIN_AP_PASSWORD_SIZE (8)
+        if ( (String(WM_config.WiFi_Creds[i].wifi_ssid) != "") && (strlen(WM_config.WiFi_Creds[i].wifi_pw) >= MIN_AP_PASSWORD_SIZE) ) {
+          LOGERROR3(F("* Add SSID = "), WM_config.WiFi_Creds[i].wifi_ssid, F(", PW = "), WM_config.WiFi_Creds[i].wifi_pw );
+          wifiMulti.addAP(WM_config.WiFi_Creds[i].wifi_ssid, WM_config.WiFi_Creds[i].wifi_pw);
+          initialConfig = false;
+        }
+      }
+    }
+    if (initialConfig) {
+      Serial.println(F("Open Config Portal without Timeout: No stored WiFi Credentials"));
+      wifi_manager();
+    }
+    else if ( WiFi.status() != WL_CONNECTED ) {
+      Serial.println(F("ConnectMultiWiFi in setup"));
+      connectMultiWiFi();
+    }
+  }
+  digitalWrite(LED_BUILTIN, LED_OFF); // Turn led off as we are not in configuration mode.
+#ifdef ESP32
+  for (int i = 0; i < 4; i++) pinMode(d[i],INPUT);
+//=================================================================================================================================
+  // Port defaults to 8266
+  // ArduinoOTA.setPort(8266);
+  // Hostname defaults to esp8266-[ChipID]
+  // ArduinoOTA.setHostname("myesp8266");
+  // No authentication by default
+  // ArduinoOTA.setPassword("admin");
+  // Password can be set with it's md5 value as well
+  // MD5(admin) = 21232f297a57a5a743894a0e4a801fc3
+  // ArduinoOTA.setPasswordHash("21232f297a57a5a743894a0e4a801fc3"); // "admin"
+  ArduinoOTA.setPasswordHash("63243dca61b32d6443e99bcc939b222f");  // "passwordota"
+  // ArduinoOTA.setPasswordHash("ac43724f16e9241d990427ab7c8f4228");
+  ArduinoOTA.onStart([]() {
+    String type;
+    if (ArduinoOTA.getCommand() == U_FLASH) {
+      type = "sketch";
+    } else {  // U_FS
+      type = "filesystem";
+    }
+    // NOTE: if updating FS this would be the place to unmount FS using FS.end()
+    Serial.println("Start updating " + type);
+  });
+  ArduinoOTA.onEnd([]() {
+    Serial.println(F("\nEnd"));
+  });
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+  });
+  ArduinoOTA.onError([](ota_error_t error) {
+    Serial.printf("Error[%u]: ", error);
+    if (error == OTA_AUTH_ERROR) {
+      Serial.println(F("Auth Failed"));
+    } else if (error == OTA_BEGIN_ERROR) {
+      Serial.println(F("Begin Failed"));
+    } else if (error == OTA_CONNECT_ERROR) {
+      Serial.println(F("Connect Failed"));
+    } else if (error == OTA_RECEIVE_ERROR) {
+      Serial.println(F("Receive Failed"));
+    } else if (error == OTA_END_ERROR) {
+      Serial.println(F("End Failed"));
+    }
+  });
+  ArduinoOTA.begin();
+#endif
+//=================================================================================================================================
+  Wire.begin();
+  aht10.begin();
+  irsend.begin();
+  assert(irutils::lowLevelSanityCheck() == 0);
+#if DECODE_HASH
+  // Ignore messages with less than minimum on or off pulses.
+  irrecv.setUnknownThreshold(kMinUnknownSize);
+#endif  // DECODE_HASH
+  irrecv.setTolerance(kTolerancePercentage);  // Override the default tolerance.
+  irrecv.enableIRIn();  // Start the receiver  
+  // Serial.println(F("Default state of the remote."));
+  // Serial.println(F("Setting desired state for A/C."));
+  // ac.begin();
+  // ac.setUseFahrenheit(false); //ac.setUseFahrenheit(false), ac.setUseFahrenheit(true)
+  // ac.setDisplayTempSource(0);
+  // printState();
+#ifdef USE_SSL
+  Serial.println(F("SSL/TLS"));
+#else
+  Serial.println(F("NON-SSL/ TLS"));
+#endif
+}
+
+// Loop function
+void loop() {
+  // Call the double reset detector loop method every so often,
+  // so that it can recognise when the timeout expires.
+  // You can also call drd.stop() when you wish to no longer
+  // consider the next reset as a double reset.
+  if (drd) drd->loop();
+  if(mqtt) mqtt->loop();
+#ifdef ESP32
+  ArduinoOTA.handle();
+  for (int i = 0; i < 4; i++) {
+    vd[i] = digitalRead(d[i]);
+    if (lvd[i] != vd[i]) {
+      lvd[i] = vd[i];
+      Serial.print(F("D"));
+      Serial.print(i);
+      Serial.print(F(" = "));
+      Serial.println(vd[i]);
+      mqtt->publish((String(MQTT_Pub_Topic) + "/state/rf/d" + i).c_str(), String(vd[i]).c_str());
+    }
+  }
+#endif
+  check_status();  // this is just for checking if we are connected to WiFi  
+  if (irrecst == true && irrecv.decode(&results)) {
+    Serial.println();
+    Serial.print(resultToHumanReadableBasic(&results));
+    //    String description = IRAcUtils::resultAcToString(&results);
+    //    if (description.length()) Serial.println(D_STR_MESGDESC ": " + description);
+    //    yield();  // Feed the WDT as the text output can take a while to print.
+    Serial.print(F("\nSending HEX code value......."));
+//    if (! mqtt->publish((String(MQTT_Pub_Topic) + "/ir-receiver/code").c_str(), String(results.value, HEX).c_str())) {
+//      Serial.println(F("Failed Sending Code"));
+    if (!mqtt->publish((String(MQTT_Pub_Topic) + "/state/ir-receiver/code").c_str(), String(resultToHumanReadableBasic(&results)).c_str())) {
+      Serial.println(F("Failed Sending Code"));
+    } else {
+      mqtt->publish((String(MQTT_Pub_Topic) + "/state/ir-receiver/hexcode").c_str(), String(resultToHexidecimal(&results)).c_str());
+      Serial.println(F("Code Sent!"));
+    }
+    Serial.print(F("HEX Code : ")); Serial.println(results.value, HEX);
+    Serial.println();
+    irrecv.resume();  // Receive the next value
+  }
+  if (Serial.available() > 0) {     // Serial Data Format {"Protocol":"GREE","Model":"YB1FA","Power":1,"Mode":"Cool","Temperature":23,"Celsius":1,"Fan":"max","SwingV":"highest","SwingH":"Auto","Quiet":false,"Turbo":false,"Eco":false,"Light":true,"Filter":true,"Clean":false,"Beep":true,"Sleep":-1,"Clock":-1}
+    char data = Serial.read();
+    serin += data;
+    if (data == '\n') {
+      DynamicJsonDocument jdata(512);
+      DeserializationError error = deserializeJson(jdata, serin);
+      if (error) {
+        Serial.print(F("deserializeJson() failed: "));
+        Serial.println(error.f_str());
+        return;
+      }
+      ACParam.protocol = protocol(jdata["Protocol"]);
+      ACParam.model = irac.strToModel(jdata["Model"]);
+      ACParam.power = jdata["Power"];
+      ACParam.mode = irac.strToOpmode(jdata["Mode"]);
+      ACParam.degrees = jdata["Temperature"];
+      ACParam.celsius = jdata["Celsius"];
+      ACParam.fanspeed = irac.strToFanspeed(jdata["Fan"]);
+      ACParam.swingv = irac.strToSwingV(jdata["SwingV"]);
+      ACParam.swingh = irac.strToSwingH(jdata["SwingH"]);
+      ACParam.quiet = jdata["Quiet"];
+      ACParam.turbo = jdata["Turbo"];
+      ACParam.econo = jdata["Eco"];
+      ACParam.light = jdata["Light"];
+      ACParam.filter = jdata["Filter"];
+      ACParam.clean = jdata["Clean"];
+      ACParam.beep = jdata["Beep"];
+      ACParam.sleep = jdata["Sleep"];
+      ACParam.clock = jdata["Clock"];
+      irac.sendAc(ACParam);
+      serin="";
+      jdata["Protocol"] = ACParam.protocol;
+      jdata["Model"] = ACParam.model;
+      jdata["Power"] = ACParam.power; 
+      jdata["Mode"] = irac.opmodeToString(ACParam.mode); 
+      jdata["Temperature"] = ACParam.degrees; 
+      jdata["Celsius"] = ACParam.celsius; 
+      jdata["Fan"] = irac.fanspeedToString(ACParam.fanspeed);
+      jdata["SwingV"] = irac.swingvToString(ACParam.swingv);
+      jdata["SwingH"] = irac.swinghToString(ACParam.swingh);
+      jdata["Quiet"] = ACParam.quiet;
+      jdata["Turbo"] = ACParam.turbo; 
+      jdata["Eco"] = ACParam.econo;
+      jdata["Light"] = ACParam.light;
+      jdata["Filter"] = ACParam.filter; 
+      jdata["Clean"] = ACParam.clean; 
+      jdata["Beep"] = ACParam.beep; 
+      jdata["Sleep"] = ACParam.sleep; 
+      jdata["Clock"] = ACParam.clock;
+      Serial.println();
+      Serial.println(F("Setting AC with Parameter : "));
+      serializeJsonPretty(jdata, Serial);
+      PublishACState(pubacmodeskip);
+    }
+  }
+}
