@@ -674,7 +674,6 @@ void createNewInstances() {
     mqtt->subscribe((MQTT_Sub_Topic + "/set/#").c_str());
     Serial.print(F("Creating new MQTT object : "));
     if (mqtt) {
-      mqtt->publish((MQTT_Pub_Topic + "/status").c_str(), "online");
       Serial.println(F("OK"));
       Serial.println(String("SERVER = ")    + custom_SERVER    + ", SERVER LOCAL = "  + custom_SERVER_LOCAL + ", INET PRIORITY = " + custom_SERVERPRIO);
       Serial.println(String("USERNAME = ")  + custom_USERNAME  + ", PASSWORD = "           + custom_KEY + ", SERVERPORT = " + custom_SERVERPORT);
@@ -994,6 +993,7 @@ void MQTT_connect() {
   createNewInstances();
   // Return if already connected
   if (mqtt->connected()) {
+    mqtt->publish((MQTT_Pub_Topic + "/status").c_str(), "online");
     return;
   }
   Serial.println(F("Connecting to MQTT (3 attempts)..."));
