@@ -490,7 +490,8 @@ void heartBeatPrint() {
 
 void publishMQTT() {
   MQTT_connect();
-  if (mqtt->publish(String(MQTT_Pub_Topic + "/sensors/temperature").c_str(),String(aht10.readTemperature()).c_str())) {
+  // if (mqtt->publish(String(MQTT_Pub_Topic + "/sensors/temperature").c_str(),String(aht10.readTemperature()).c_str())) {
+  if (mqtt->publish((MQTT_Status_Topic + "/sensors/temperature").c_str(),String(aht10.readTemperature()).c_str())) {
     Serial.print(F("T"));        // T means publishing OK
     mqttfailcount = 0 ;
   }
@@ -498,7 +499,8 @@ void publishMQTT() {
     Serial.print(F("F"));        // F means publishing failure
     mqttfailcount = mqttfailcount+1 ;
   }
-  if (mqtt->publish(String(MQTT_Pub_Topic + "/sensors/humidity").c_str(),String(aht10.readHumidity()).c_str())) {
+  // if (mqtt->publish(String(MQTT_Pub_Topic + "/sensors/humidity").c_str(),String(aht10.readHumidity()).c_str())) {
+  if (mqtt->publish((MQTT_Status_Topic + "/sensors/humidity").c_str(),String(aht10.readHumidity()).c_str())) {
     Serial.print(F("H"));        // H means publishing OK
     mqttfailcount = 0 ;
   }
@@ -668,10 +670,11 @@ void createNewInstances() {
       Serial.println(F("PAKE SERVER IOT"));
       }
     mqtt->setBufferSize(512);
-    mqtt->connect(ClientNID.c_str(), custom_USERNAME, custom_KEY, (MQTT_Pub_Topic + "/status").c_str(), 0, 1, "online");    
+    mqtt->connect(ClientNID.c_str(), custom_USERNAME, custom_KEY, (MQTT_Pub_Topic + "/status").c_str(), 0, true, "offline");    
     mqtt->subscribe((MQTT_Sub_Topic + "/set/#").c_str());
     Serial.print(F("Creating new MQTT object : "));
     if (mqtt) {
+      mqtt->publish((MQTT_Pub_Topic + "/status").c_str(), "online");
       Serial.println(F("OK"));
       Serial.println(String("SERVER = ")    + custom_SERVER    + ", SERVER LOCAL = "  + custom_SERVER_LOCAL + ", INET PRIORITY = " + custom_SERVERPRIO);
       Serial.println(String("USERNAME = ")  + custom_USERNAME  + ", PASSWORD = "           + custom_KEY + ", SERVERPORT = " + custom_SERVERPORT);
@@ -1612,7 +1615,7 @@ void loop() {
       Serial.print(i);
       Serial.print(F(" = "));
       Serial.println(vd[i]);
-      mqtt->publish((String(MQTT_Pub_Topic) + "/state/rf/d" + i).c_str(), String(vd[i]).c_str());
+      mqtt->publish((MQTT_Status_Topic + "/rf/d" + i).c_str(), String(vd[i]).c_str());
     }
   }
 #endif
@@ -1626,10 +1629,10 @@ void loop() {
     Serial.print(F("\nSending HEX code value......."));
 //    if (! mqtt->publish((String(MQTT_Pub_Topic) + "/ir-receiver/code").c_str(), String(results.value, HEX).c_str())) {
 //      Serial.println(F("Failed Sending Code"));
-    if (!mqtt->publish((String(MQTT_Pub_Topic) + "/state/ir-receiver/code").c_str(), String(resultToHumanReadableBasic(&results)).c_str())) {
+    if (!mqtt->publish((MQTT_Status_Topic + "/ir-receiver/code").c_str(), String(resultToHumanReadableBasic(&results)).c_str())) {
       Serial.println(F("Failed Sending Code"));
     } else {
-      mqtt->publish((String(MQTT_Pub_Topic) + "/state/ir-receiver/hexcode").c_str(), String(resultToHexidecimal(&results)).c_str());
+      mqtt->publish((MQTT_Status_Topic + "/ir-receiver/hexcode").c_str(), String(resultToHexidecimal(&results)).c_str());
       Serial.println(F("Code Sent!"));
     }
     Serial.print(F("HEX Code : ")); Serial.println(results.value, HEX);
